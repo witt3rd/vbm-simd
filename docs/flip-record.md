@@ -54,3 +54,7 @@ State read before the flip: the `protect-main` ruleset already exists and is act
 ## Consumers
 
 vbm-json's SIMD work (a branch, not yet on its `main`) requires this repository by commit (`https://github.com/witt3rd/vbm-simd` at `433268697353f3b5f0ad1197b2ab2475d270dae9`, the commit that made the shim header path absolute so that a consuming Lake project builds). That commit is in the published history and is unchanged; nothing is re-pinned. While this repository is private a hosted runner cannot fetch the dependency, so vbm-json's hosted CI can only build it once the flip is done. The clean-container proof builds a scratch project that requires this repository at that exact commit.
+
+## Flipped
+
+Flipped 2026-11-05: the repository is public, the settings above are applied, and CI runs on GitHub-hosted runners.
