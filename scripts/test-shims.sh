@@ -11,7 +11,21 @@ ulimit -c 0   # a mutant may crash on purpose: no core file
 stale() { rm -f "$1"/.lake/build/ir/ShimTest.c.o.* "$1"/.lake/build/ir/VbmSimd/*.c.o.* "$1"/.lake/build/ir/VbmSimd.c.o.* "$1"/.lake/build/bin/shim-test 2>/dev/null || true; }
 stale .
 lake build shim-test
-.lake/build/bin/shim-test
+# Crash probes (the mutants crash on purpose) run through the vendored lander's run-probe: ulimit -c 0 PLUS the dumpable-clear preload, so a crash leaves no core and no crash record (scripts/land/docs/crash-probes.md).
+probe="$PWD/scripts/land/bin/run-probe"
+"$probe" true || { echo "test-shims: run-probe is refused or unusable: no mutant can be run" >&2; exit 1; }
+# The AVX2 search must have RUN: on a CPU that has AVX2 (and always on CI) the test reports a non-zero number of its comparisons; a run that skipped them proves nothing about the shim.
+avx2_ran() {  # avx2_ran REQUIRED OUTPUT: fails when AVX2 comparisons are required and the output says none ran
+  local n; n=$(sed -n 's/.*; \([0-9][0-9]*\) of them the AVX2 search.*/\1/p' <<<"$2" | sed -n 1p)
+  [ -n "$n" ] || return 1
+  [ "$1" != 1 ] || [ "$n" -gt 0 ]
+}
+avx2_ran 1 "shim-test: ok (5 comparisons of the C shims against their Lean models; 3 of them the AVX2 search)" || { echo "test-shims: self-test: the AVX2-ran check rejects a run with AVX2 comparisons" >&2; exit 1; }
+! avx2_ran 1 "shim-test: ok (5 comparisons of the C shims against their Lean models; 0 of them the AVX2 search)" || { echo "test-shims: self-test: the AVX2-ran check accepts a run with none" >&2; exit 1; }
+! avx2_ran 0 "shim-test: ok (5 comparisons of the C shims against their Lean models)" || { echo "test-shims: self-test: the AVX2-ran check accepts output with no count" >&2; exit 1; }
+need_avx2=0; if [ -n "${CI:-}" ]; then need_avx2=1; elif grep -qw avx2 /proc/cpuinfo 2>/dev/null; then need_avx2=1; fi
+out=$(.lake/build/bin/shim-test); echo "$out"
+avx2_ran "$need_avx2" "$out" || { echo "test-shims: the AVX2 search did not run (required on CI and on a CPU with AVX2)" >&2; exit 1; }
 # The byte search against unmapped pages (tests/find_guard.c: any read outside the buffer is a SIGSEGV). Built with the toolchain's own compiler, from the include directory it is given.
 G=$(mktemp -d); leanc -O2 -I include tests/find_guard.c -o "$G/find_guard" && "$G/find_guard" || { rm -rf "$G"; echo "test-shims: the byte-search guard test failed" >&2; exit 1; }; rm -rf "$G"
 . scripts/lib-reap.sh   # an abort or exit stops the mutant jobs by the pids held here (each job is its own process group: set -m); never by pattern
@@ -44,8 +58,12 @@ run_mutant() {
   stale "$d"
   ( cd "$d" && lake build shim-test >/dev/null 2>"$d/build.err" ) || { echo "test-shims: mutant $name does not build: $(tail -3 "$d/build.err")" >&2; return 2; }
   leanc -O2 -I "$d/include" "$d/tests/find_guard.c" -o "$d/find_guard" 2>"$d/build.err" || { echo "test-shims: mutant $name does not build (guard test): $(tail -3 "$d/build.err")" >&2; return 2; }
-  # caught = the Lean shim test fails or the guard test fails (a crash on a guard page included)
-  if ( cd "$d" && .lake/build/bin/shim-test >/dev/null 2>&1 && ./find_guard >/dev/null 2>&1 ); then echo "test-shims: the test did NOT catch mutant $name" >&2; return 1; fi
+  # caught = the Lean shim test fails or the guard test fails (a crash on a guard page included), both under run-probe (no core, no crash record); exit 2 is run-probe refusing, not a catch
+  local rc=0
+  ( cd "$d" && "$probe" .lake/build/bin/shim-test >/dev/null 2>&1 ) || rc=$?
+  [ "$rc" != 2 ] || { echo "test-shims: mutant $name: run-probe refused" >&2; return 2; }
+  if [ "$rc" = 0 ]; then ( cd "$d" && "$probe" ./find_guard >/dev/null 2>&1 ) || rc=$?; [ "$rc" != 2 ] || { echo "test-shims: mutant $name: run-probe refused" >&2; return 2; }; fi
+  [ "$rc" != 0 ] || { echo "test-shims: the test did NOT catch mutant $name" >&2; return 1; }
 }
 for m in "${mutants[@]}"; do set -m; run_mutant "$m" & pids+=($!); set +m; done
 bad=0; for p in "${pids[@]}"; do wait "$p" || bad=1; done

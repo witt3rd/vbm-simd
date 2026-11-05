@@ -19,6 +19,7 @@ structure St where
   s : UInt64
   bad : Nat := 0
   count : Nat := 0
+  avx : Nat := 0   -- how many of the comparisons were of the AVX2 search
 
 /-- The bytes of `a` now. An IO action, so the compiler can neither merge two snapshots of the same array nor move a snapshot across a store (`a.data` twice would be one value). -/
 @[noinline] def snap (a : ByteArray) : BaseIO (Array UInt8) := pure a.data
@@ -63,7 +64,9 @@ def checkFind (st : St) (a : ByteArray) (s : UInt32) (tag : String) : IO St := d
     let spec := findSpec a s i.toNat
     st ← check st "findSwar" (findSwar a s i.toNat == spec) s!"{tag} size {a.size} set {s} i {i}"
     st ← check st "findFirstOf" (findFirstOf a s i.toNat == spec) s!"{tag} size {a.size} set {s} i {i}"
-    if avx then st ← check st "findAvx2" (findAvx2 a s i == spec.toUSize) s!"{tag} size {a.size} set {s} i {i}"
+    if avx then
+      st ← check st "findAvx2" (findAvx2 a s i == spec.toUSize) s!"{tag} size {a.size} set {s} i {i}"
+      st := { st with avx := st.avx + 1 }
   return st
 
 /-- Filler: a byte that is in none of the sets above. -/
@@ -163,7 +166,7 @@ def run : IO UInt32 := do
         st ← check st "nextSet" (VbmSimd.nextSet b j == expect) s!"size {n} density {density} j {j}"
   st ← findRun st
   if st.bad == 0 then
-    IO.println s!"shim-test: ok ({st.count} comparisons of the C shims against their Lean models)"
+    IO.println s!"shim-test: ok ({st.count} comparisons of the C shims against their Lean models; {st.avx} of them the AVX2 search)"
     return 0
   IO.eprintln s!"shim-test: FAILED ({st.bad} of {st.count})"
   return 1
