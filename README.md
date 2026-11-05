@@ -2,7 +2,7 @@
 
 Bit-parallel kernels for scanning text, **proved correct in Lean 4** against one-bit-at-a-time machines, and the very small amount of trusted C needed to run them at hardware speed.
 
-> **Status: pre-release (early).** Six kernels are proved (prefix xor, escape carry, byte-lane compare, lane-flag packing, a 64-byte block mask, a cursor over the set bits of a mask array); four trusted C primitives are modelled and tested. Nothing is published to any package registry; build from source. The API will change.
+> **Status: pre-release (early).** Unscored: it is not in the [VBM registry](https://github.com/witt3rd/vbm) yet, so there is no score card to link; what is proved and what is trusted is below. Six kernels are proved (prefix xor, escape carry, byte-lane compare, lane-flag packing, a 64-byte block mask, a cursor over the set bits of a mask array); four trusted C primitives are modelled and tested. Nothing is published to any package registry; build from source. The API will change.
 
 ## Why it exists
 
@@ -63,8 +63,8 @@ Your library may import `VbmSimd.*` (it brings `Init` only); a freestanding buil
 
 ## Contributing
 
-The repository lands changes directly to `main` through a gate and does not take pull requests from outside; see [`AGENTS.md`](AGENTS.md) for the rules the agents work under. Issues are welcome.
+Issues and pull requests (as proposals) are welcome; the owner lands changes to `main` directly through a gate, see [`CONTRIBUTING.md`](CONTRIBUTING.md) and [`AGENTS.md`](AGENTS.md) (the rules the coding agents work under). Report a vulnerability privately: [`SECURITY.md`](SECURITY.md). How this repository was prepared for publication, and what its history carries: [`docs/flip-record.md`](docs/flip-record.md).
 
 ## License
 
-Apache-2.0. See [LICENSE](LICENSE).
+Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).

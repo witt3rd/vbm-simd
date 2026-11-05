@@ -1,0 +1,6 @@
+vbm-simd
+Copyright 2026 witt3rd and the vbm-simd contributors
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+The library is Lean 4 (the `VbmSimd` modules import `Init` only) plus one small C header (`include/vbm_simd.h`); it bundles no third-party code.
+The build uses the Lean 4 toolchain (Apache-2.0), pinned in `mise.toml`, which `mise` downloads; the proofs use only Lean's own libraries.
