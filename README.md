@@ -2,7 +2,7 @@
 
 Bit-parallel kernels for scanning text, **proved correct in Lean 4** against one-bit-at-a-time machines, and the very small amount of trusted C needed to run them at hardware speed.
 
-> **Status: pre-release (early).** Two kernels are proved (prefix xor, escape carry). Nothing is published to any package registry; build from source. The API will change.
+> **Status: pre-release (early).** Four kernels are proved (prefix xor, escape carry, byte-lane compare, lane-flag packing). Nothing is published to any package registry; build from source. The API will change.
 
 ## Why it exists
 
@@ -20,6 +20,8 @@ Lean models and differential tests, each with its own entry in a ledger. It is t
 |---|---|---|---|
 | `VS-1` | the state after bit `i` is the xor of bits `0..i` | `prefixXor`, `prefixXorC` (six shift-xor steps, with a carry between blocks) | `prefixXor_spec`, `prefixXorC_spec` |
 | `VS-2` | byte `i` is escaped iff the byte before it is a backslash that is not itself escaped | `escaped`, `escOut` (two additions; the carry out of the block) | `escaped_spec`, `escOut_spec`, `quote_not_escaped_spec` |
+| `VS-3` | byte `k` of `w` equals byte `k` of `c` | `eqLanes` (SWAR compare of eight bytes at once) | `eqLanes_spec`, `eqLanes_low` |
+| `VS-4` | the flag of lane `k` of a mask | `pack8` (eight lane flags to the low eight bits, one multiply) | `pack8_spec`, `pack8_high` |
 
 The statements are about `UInt64` code, the code the Lean compiler turns into C, not about a model of it. Only the three standard axioms are used (checked by `scripts/AxiomGate.lean` on every run). [`docs/SPEC.md`](docs/SPEC.md) lists the clauses; [`docs/method.md`](docs/method.md) explains the proof pattern, which is the reusable part:
 a carry chain is a sequential machine in disguise, so the proof is an induction over the bit index with an invariant relating the carry to the machine's state, whose step is a `decide` over a handful of Booleans.

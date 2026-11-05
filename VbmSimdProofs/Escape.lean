@@ -1,4 +1,5 @@
 import VbmSimd.Escape
+import VbmSimdProofs.Bits
 /-! # Proof: `escaped` and `escOut` compute the escape machine (clause `[VS-2]`)
 
 The kernel is two additions; an addition is a carry chain, and a carry chain is a sequential machine in disguise. The proof is an induction over the bit index with an invariant `Inv` that
@@ -181,9 +182,6 @@ theorem escOut_spec (b : UInt64) (pb : Bool) : escOut b (carryWord pb) = carryWo
       simp
     · simp [escOut, escOutK, bsOf, startsOf, oddBits, oddM, pv, carryWord, UInt64.lt_iff_toBitVec_lt, UInt64.toBitVec_and, UInt64.toBitVec_add, UInt64.toBitVec_shiftLeft]
   rw [key, h]
-
-theorem bit_and (x y : UInt64) (i : Nat) : bit (x &&& y) i = (bit x i && bit y i) := by simp [bit]
-theorem bit_not (x : UInt64) (i : Nat) (hi : i < 64) : bit (~~~x) i = !bit x i := by simp [bit, hi]
 
 /-- `[VS-2]` the consumer of `escaped`: the quotes that are not escaped. For a quote mask `q` disjoint from the backslash mask `b`, bit `i` of `q &&& ~~~(escaped b prev)` is
 "a quote at `i` and the machine says byte `i` is not escaped". -/

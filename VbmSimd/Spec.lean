@@ -24,4 +24,13 @@ def escSpec (b : UInt64) (pb : Bool) : Nat → Bool
 /-- A carry as a word: `1` when set, `0` otherwise (the form the kernels take and give). -/
 @[inline] def carryWord (c : Bool) : UInt64 := if c then 1 else 0
 
+/-- Byte `k` of a word (bits `8k .. 8k+7`), as a bit vector. -/
+def byte (w : UInt64) (k : Nat) : BitVec 8 := w.toBitVec.extractLsb' (8 * k) 8
+
+/-- `[VS-3]` the lane-equality predicate: byte `k` of `w` equals byte `k` of `c`. With `c` a byte repeated in every lane this is "byte `k` of `w` is that byte". -/
+def laneEq (c w : UInt64) (k : Nat) : Bool := decide (byte w k = byte c k)
+
+/-- `[VS-4]` the flag of lane `k` of a mask that carries one flag per byte lane, in the top bit of the lane (bit `8k + 7`). -/
+def laneFlag (m : UInt64) (k : Nat) : Bool := bit m (8 * k + 7)
+
 end VbmSimd

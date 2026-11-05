@@ -7,7 +7,7 @@ escape carry, byte-lane classification, UTF-8 validation), their proofs against 
 base is `docs/trust-ledger.md`. `README.md` is the public face (kept short); `docs/method.md` is the proof pattern.
 
 ## Status
-First landing: `VbmSimd/Spec.lean` (the machines), `PrefixXor.lean`, `Escape.lean` and their proofs (clauses VS-1, VS-2). Planned, one landing each: the byte-lane model (`eqLanes`, `pack8`), the chunking theorem,
+Landed: `VbmSimd/Spec.lean` (the machines), `PrefixXor.lean`, `Escape.lean`, `Lanes.lean` and their proofs (clauses VS-1 to VS-4). Planned, one landing each: the chunking theorem,
 UTF-8 validation, `flatten`, the trusted shims (`ld64`, `st64`, `ctz`, `st32`; later ISA shims, each its own ledger entry). Toolchain: Lean 4.35.0 pinned in `mise.toml` and `lean-toolchain`
 (no elan). Run everything as `mise exec -- ...`; the gate is `mise exec -- scripts/tier1.sh`.
 

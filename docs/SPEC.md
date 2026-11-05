@@ -8,8 +8,10 @@ definition or no theorem, or a tag is not a clause. Bit `i` is counted from the 
 |---|---|---|---|
 | VS-1 | `scanXor x`: the state after bit `i` is the xor of bits `0 .. i` of `x` | `prefixXor`, `prefixXorC` (the in-string mask from a quote mask, with a carry across blocks) | `prefixXor_spec`, `prefixXorC_spec`, `prefixXorC_carry` (`VbmSimdProofs/PrefixXor.lean`) |
 | VS-2 | `escSpec b pb`: byte `i` is escaped iff the byte before it is a backslash that is not itself escaped; `pb` is the carry in | `escaped`, `escOut` (the add-with-carry trick; the carry out of the block) | `escaped_spec`, `escOut_spec`, `quote_not_escaped_spec` (`VbmSimdProofs/Escape.lean`) |
+| VS-3 | `laneEq c w k`: byte `k` of `w` equals byte `k` of `c` | `eqLanes`, `zeroLanes` (SWAR compare of eight bytes; flags in the top bit of each lane; nothing else set) | `eqLanes_spec`, `eqLanes_low` (`VbmSimdProofs/Lanes.lean`) |
+| VS-4 | `laneFlag m k`: the flag of lane `k` (bit `8k + 7`) of a mask that carries one flag per lane | `pack8` (the eight flags to the low eight bits, one multiply) | `pack8_spec`, `pack8_high` (`VbmSimdProofs/Pack.lean`) |
 
-Planned clauses (not in the tree yet; each lands with its proof): the byte-lane predicates (`eqLanes`, `pack8`), the UTF-8 validation automaton, the chunking theorem that threads a carry
+Planned clauses (not in the tree yet; each lands with its proof): the UTF-8 validation automaton, the chunking theorem that threads a carry
 state through consecutive blocks, `flatten` (the set bits of a mask as an index).
 
 ## What a clause does not say
