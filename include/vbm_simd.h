@@ -1,4 +1,4 @@
-/* include/vbm_simd.h: the trusted C of vbm-simd (docs/trust-ledger.md, T10 and T11). Four `static inline` primitives (T10), then the AVX2 byte search and its CPU test (T11), each the C body of an `@[extern]` function of
+/* include/vbm_simd.h: the trusted C of vbm-simd (docs/trust-ledger.md, T10 and T11). Four `static inline` primitives (T10), then the AVX2 byte search and its CPU test (T11) and the in-place append (T12), each the C body of an `@[extern]` function of
  * VbmSimd/Shims.lean or VbmSimd/Find.lean whose Lean body is its specification (the model). Include it first in every C file generated from Lean code that calls them
  * (`cc -include include/vbm_simd.h`): Lean then emits only an `extern` prototype after it, which a later declaration of a static function does not conflict with.
  * Every function is total: an access past the end of the array is defined (reads zero, writes nothing there), exactly as the model says; none can touch memory outside the array.
@@ -106,5 +106,19 @@ static inline size_t vbm_simd_find_avx2(b_lean_obj_arg a, uint32_t s, size_t i) 
 static inline uint8_t vbm_simd_has_avx2(lean_obj_arg u) { (void)u; return 0; }
 static inline size_t vbm_simd_find_avx2(b_lean_obj_arg a, uint32_t s, size_t i) { return vbm_simd_find_scalar(lean_sarray_cptr(a), lean_sarray_size(a), i, s); }
 #endif
+
+/* ---- T12: append (VS-12): `a` with the bytes of `b` after its last byte, in place when `a` is unshared and has room, else by the runtime's copy (`lean_byte_array_copy_slice`, which grows it).
+ * The Lean body `a ++ b` is the model. Total: the fast path writes only in [size, size + m) of an array whose capacity covers it. `b` is borrowed and is not `a` (an unshared `a` cannot be the borrowed `b`). */
+/* the runtime's append (libleanrt, or runtime/rt.c of a freestanding consumer): src borrowed, the rest owned */
+extern lean_obj_res lean_byte_array_copy_slice(b_lean_obj_arg src, lean_obj_arg so, lean_obj_arg dest, lean_obj_arg dof, lean_obj_arg ln, uint8_t exact);
+static inline lean_obj_res vbm_simd_append(lean_obj_arg a, b_lean_obj_arg b) {
+  size_t n = lean_sarray_size(a), m = lean_sarray_size(b);
+  if (lean_is_exclusive(a) && m <= lean_sarray_capacity(a) - n) {
+    __builtin_memcpy(lean_sarray_cptr(a) + n, lean_sarray_cptr(b), m);
+    lean_sarray_set_size(a, n + m);
+    return a;
+  }
+  return lean_byte_array_copy_slice(b, lean_box(0), a, lean_box(n), lean_box(m), 0);
+}
 
 #endif

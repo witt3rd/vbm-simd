@@ -28,6 +28,8 @@ out=$(.lake/build/bin/shim-test); echo "$out"
 avx2_ran "$need_avx2" "$out" || { echo "test-shims: the AVX2 search did not run (required on CI and on a CPU with AVX2)" >&2; exit 1; }
 # The byte search against unmapped pages (tests/find_guard.c: any read outside the buffer is a SIGSEGV). Built with the toolchain's own compiler, from the include directory it is given.
 G=$(mktemp -d); leanc -O2 -I include tests/find_guard.c -o "$G/find_guard" && "$G/find_guard" || { rm -rf "$G"; echo "test-shims: the byte-search guard test failed" >&2; exit 1; }; rm -rf "$G"
+# The in-place append (T12) on a hand-built array whose spare capacity ends at an unmapped page (tests/append_guard.c): a store past the capacity is a SIGSEGV; the in-place decision is checked.
+G=$(mktemp -d); leanc -O2 -I include tests/append_guard.c -o "$G/append_guard" && "$G/append_guard" || { rm -rf "$G"; echo "test-shims: the append guard test failed" >&2; exit 1; }; rm -rf "$G"
 . scripts/lib-reap.sh   # an abort or exit stops the mutant jobs by the pids held here (each job is its own process group: set -m); never by pattern
 pids=(); T=$(mktemp -d); trap 'reap_pids "${pids[@]}"; rm -rf "$T"' EXIT; trap 'exit 143' INT TERM HUP
 # mutant NAME 'sed expression'
@@ -49,6 +51,11 @@ mutants=(
   "find-scalar-member|s# [\|][\|] p\[i\] == b3##"
   "find-scalar-start|s|for (; i < n; i++) if|for (i = 0; i < n; i++) if|"
   "cpu-bit|s|c = (b >> 5) \& 1|c = (b >> 6) \& 1|"
+  # the in-place append (T12): a wrong offset, a wrong size, no exclusivity test (a shared array is written), no room test (a store past the capacity)
+  "append-offset|s|lean_sarray_cptr(a) + n, lean_sarray_cptr(b), m|lean_sarray_cptr(a) + n + 1, lean_sarray_cptr(b), m|"
+  "append-size|s|lean_sarray_set_size(a, n + m)|lean_sarray_set_size(a, n + m + 1)|"
+  "append-shared|s|if (lean_is_exclusive(a) \&\& m <= |if (m <= |"
+  "append-capacity|s|m <= lean_sarray_capacity(a) - n)|m <= lean_sarray_capacity(a))|"
 )
 run_mutant() {
   local name=${1%%|*} expr=${1#*|}; local d=$T/$name
@@ -58,11 +65,13 @@ run_mutant() {
   stale "$d"
   ( cd "$d" && lake build shim-test >/dev/null 2>"$d/build.err" ) || { echo "test-shims: mutant $name does not build: $(tail -3 "$d/build.err")" >&2; return 2; }
   leanc -O2 -I "$d/include" "$d/tests/find_guard.c" -o "$d/find_guard" 2>"$d/build.err" || { echo "test-shims: mutant $name does not build (guard test): $(tail -3 "$d/build.err")" >&2; return 2; }
+  leanc -O2 -I "$d/include" "$d/tests/append_guard.c" -o "$d/append_guard" 2>"$d/build.err" || { echo "test-shims: mutant $name does not build (append guard test): $(tail -3 "$d/build.err")" >&2; return 2; }
   # caught = the Lean shim test fails or the guard test fails (a crash on a guard page included), both under run-probe (no core, no crash record); exit 2 is run-probe refusing, not a catch
   local rc=0
   ( cd "$d" && "$probe" .lake/build/bin/shim-test >/dev/null 2>&1 ) || rc=$?
   [ "$rc" != 2 ] || { echo "test-shims: mutant $name: run-probe refused" >&2; return 2; }
   if [ "$rc" = 0 ]; then ( cd "$d" && "$probe" ./find_guard >/dev/null 2>&1 ) || rc=$?; [ "$rc" != 2 ] || { echo "test-shims: mutant $name: run-probe refused" >&2; return 2; }; fi
+  if [ "$rc" = 0 ]; then ( cd "$d" && "$probe" ./append_guard >/dev/null 2>&1 ) || rc=$?; [ "$rc" != 2 ] || { echo "test-shims: mutant $name: run-probe refused" >&2; return 2; }; fi
   [ "$rc" != 0 ] || { echo "test-shims: the test did NOT catch mutant $name" >&2; return 1; }
 }
 for m in "${mutants[@]}"; do set -m; run_mutant "$m" & pids+=($!); set +m; done

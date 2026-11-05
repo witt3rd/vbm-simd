@@ -58,4 +58,7 @@ def findSpec (a : ByteArray) (s : UInt32) (i : Nat) : Nat :=
   if h : i < a.size then (if inSet s a[i] then i else findSpec a s (i + 1)) else a.size
 termination_by a.size - i
 
+/-- `[VS-12]` the append machine: the bytes of `a`, then the bytes of `b`. -/
+def appendSpec (a b : ByteArray) : List UInt8 := a.data.toList ++ b.data.toList
+
 end VbmSimd

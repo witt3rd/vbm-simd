@@ -1,6 +1,7 @@
 import VbmSimd.Shims
 import VbmSimd.Cursor
 import VbmSimd.Find
+import VbmSimd.Append
 /-! # tests/ShimTest.lean: the trusted C shims against their Lean models (Tier 1: `scripts/test-shims.sh`)
 
 Each primitive of `include/vbm_simd.h` (linked in through `lake build shim-test`, which compiles the generated C with `-include include/vbm_simd.h`) is called next to its Lean model on: every array size 0 to 41 with
@@ -99,6 +100,42 @@ def findRun (st : St) : IO St := do
         st ← checkFind st dense s "dense"
   return st
 
+/-- A byte array of `n` bytes with room for `spare` more (`emptyWithCapacity` then pushes: unshared, capacity `n + spare`). -/
+def withRoom (st : St) (n spare : Nat) : St × ByteArray := Id.run do
+  let mut st := st; let mut a := ByteArray.emptyWithCapacity (n + spare)
+  for _ in [0:n] do
+    st := { st with s := next st.s }
+    a := a.push (st.s >>> 24).toUInt8
+  return (st, a)
+
+/-- `appendBytes` (the in-place append, `vbm_simd_append`) against its model `a ++ b`, for every pair of sizes 0 to 40, with no spare room (the runtime grows it), exactly enough, one short, plenty; and the
+sharing boundary: an array that is still held elsewhere must be copied, never written (the model is a pure function: this is the one thing it cannot say). -/
+def appendRun (st : St) : IO St := do
+  let mut st := st
+  for n in [0:41] do
+    for m in [0:41] do
+      for spare in [0, m, m + 1, m + 40] do
+        let (s1, a) := withRoom st n spare
+        let (s2, b) := withRoom s1 m 0
+        st := s2
+        let a0 ← snap a
+        let b0 ← snap b
+        let r := appendBytes a b
+        let rd ← snap r
+        st ← check st "appendBytes" (rd == a0 ++ b0) s!"n {n} m {m} spare {spare}"
+      -- shared: the original is read again after the call
+      let (s1, a) := withRoom st n m
+      let (s2, b) := withRoom s1 m 0
+      st := s2
+      let a0 ← snap a
+      let r := appendBytes a b
+      let rd ← snap r
+      let a1 ← snap a
+      let b0 ← snap b
+      st ← check st "appendBytes shared: result" (rd == a0 ++ b0) s!"n {n} m {m}"
+      st ← check st "appendBytes shared: original untouched" (a1 == a0) s!"n {n} m {m}"
+  return st
+
 def run : IO UInt32 := do
   let mut st : St := { s := 0x9E3779B97F4A7C15 }
   let bigs : List USize := [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 15, 16, 17, 31, 32, 33, 40, 41, 42, 64, 1000, 0x7FFFFFFF, 0x80000000, 0xFFFFFFFF, 0x1FFFFFFFFFFFFFFF, 0x2000000000000000, 0x7FFFFFFFFFFFFFFF, 0x8000000000000000, 0xFFFFFFFFFFFFFFF0, 0xFFFFFFFFFFFFFFFF]
@@ -165,6 +202,7 @@ def run : IO UInt32 := do
         let expect := (nv.find? (· ≥ j)).getD endPos
         st ← check st "nextSet" (VbmSimd.nextSet b j == expect) s!"size {n} density {density} j {j}"
   st ← findRun st
+  st ← appendRun st
   if st.bad == 0 then
     IO.println s!"shim-test: ok ({st.count} comparisons of the C shims against their Lean models; {st.avx} of them the AVX2 search)"
     return 0
