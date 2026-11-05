@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Structural validity of .github/workflows/*.yml (Tier 1): the file parses, has a trigger and at least one job, every job has steps (or `uses`),
-and every step has exactly one of `uses` / `run`, and the public-repository rules: no `self-hosted` runner anywhere (`runs-on` is a GitHub-hosted label), no `pull_request_target` trigger, no `secrets.` other than the default GITHUB_TOKEN, and `with:` only on a `uses` step (a step inserted between a `uses` and its `with` broke a workflow once:
+and every step has exactly one of `uses` / `run`, and the public-repository rules: no `self-hosted` runner unless `.github/visibility` says exactly `private` (otherwise `runs-on` is a GitHub-hosted label), no `pull_request_target` trigger, no `secrets.` other than the default GITHUB_TOKEN, and `with:` only on a `uses` step (a step inserted between a `uses` and its `with` broke a workflow once:
 zero jobs ran). Uses actionlint too when it is on PATH. Usage: lint-workflows.py [file|dir ...]  (default .github/workflows)"""
 import glob, json, os, re, shutil, subprocess, sys
 try:
     import yaml
 except ImportError:
     print("lint-workflows: PyYAML is missing (apt install python3-yaml)", file=sys.stderr); sys.exit(2)
+
+PRIVATE = open(os.environ.get("LINT_VISIBILITY_FILE", ".github/visibility")).read().strip() == "private" if os.path.exists(os.environ.get("LINT_VISIBILITY_FILE", ".github/visibility")) else False  # missing = public (fail safe)
 
 def check(path):
     errs = []
@@ -36,8 +38,11 @@ def check(path):
             continue
         if "runs-on" not in j:
             errs.append(f"{path}: job {jn} has no runs-on")
+        elif "self-hosted" in json.dumps(j["runs-on"]) and not PRIVATE:
+            errs.append(f"{path}: job {jn} runs on a self-hosted runner but .github/visibility is not 'private': runs-on back to a GitHub-hosted label before going public")
         elif "self-hosted" in json.dumps(j["runs-on"]):
-            errs.append(f"{path}: job {jn} runs on a self-hosted runner: public-repository workflows use GitHub-hosted runners only")
+            if not (isinstance(j["runs-on"], list) and all(isinstance(x, str) and re.fullmatch(r"[a-z0-9-]+", x) for x in j["runs-on"])):
+                errs.append(f"{path}: job {jn} self-hosted runs-on must be a plain list of labels (no expressions)")
         elif not re.fullmatch(r"(ubuntu|windows|macos)-[a-z0-9.-]+", str(j["runs-on"])):
             errs.append(f"{path}: job {jn} runs-on {j['runs-on']!r} is not a plain GitHub-hosted label (no expressions, no groups)")
         steps = j.get("steps")

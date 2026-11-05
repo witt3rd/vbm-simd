@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# Tier 1: scripts/lint-workflows.py passes the repo's workflows and FAILS on: `with:` under a `run:` step, a step with both/neither of uses/run, no jobs, a job with no steps, broken YAML, no trigger, a self-hosted runner (also behind an expression), the pull_request_target trigger, a secret other than GITHUB_TOKEN.
+# Tier 1: scripts/lint-workflows.py passes the repo's workflows and FAILS on: `with:` under a `run:` step, a step with both/neither of uses/run, no jobs, a job with no steps, broken YAML, no trigger, a self-hosted runner unless .github/visibility says private (also behind an expression), the pull_request_target trigger, a secret other than GITHUB_TOKEN.
 set -euo pipefail
 export LC_ALL=C
 cd "$(dirname "$0")/.."
 python3 scripts/lint-workflows.py >/dev/null || { echo "test_lint_workflows: the repo's workflows are invalid" >&2; exit 1; }
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
+export LINT_VISIBILITY_FILE=$T/visibility   # absent = public: self-hosted must be refused
 neg() { # neg <name> <yaml>
   printf '%s\n' "$2" > "$T/$1.yml"
   if python3 scripts/lint-workflows.py "$T/$1.yml" >/dev/null 2>&1; then echo "test_lint_workflows: '$1' was accepted" >&2; exit 1; fi
@@ -74,6 +75,14 @@ jobs:
     runs-on: [self-hosted, linux]
     steps:
       - run: true"
+printf 'private\n' > "$T/vis-private"; printf '%s\n' "$head
+jobs:
+  a:
+    runs-on: [self-hosted]
+    steps:
+      - run: true" > "$T/sh.yml"
+LINT_VISIBILITY_FILE=$T/vis-private python3 scripts/lint-workflows.py "$T/sh.yml" >/dev/null || { echo "test_lint_workflows: self-hosted refused while private" >&2; exit 1; }
+printf 'public\n' > "$T/visibility"; if python3 scripts/lint-workflows.py "$T/sh.yml" >/dev/null 2>&1; then echo "test_lint_workflows: self-hosted accepted while public" >&2; exit 1; fi; rm "$T/visibility"
 neg self-hosted-expression "$head
 jobs:
   a:
