@@ -190,4 +190,54 @@ theorem cursorNext_spec (masks : ByteArray) (w : Nat) (m : UInt64) (hm : m ≠ 0
   simp only [curStream, curPos, bitsOf_cons m hm, List.map_cons, List.cons_append]
   rfl
 
+/-! ## The stream is the filter of the positions -/
+
+theorem posFrom_eq_filter (m : UInt64) : ∀ f i, posFrom m f i = (List.range' i f).filter (fun k => bit m k) := by
+  intro f
+  induction f with
+  | zero => intro i; rfl
+  | succ f ih =>
+    intro i
+    rw [List.range'_succ, List.filter_cons, posFrom, ih (i + 1)]
+
+theorem posFrom_map (m : UInt64) (c : Nat) : ∀ f i, (posFrom m f i).map (c + ·) = (List.range' (c + i) f).filter (fun k => bit m (k - c)) := by
+  intro f
+  induction f with
+  | zero => intro i; rfl
+  | succ f ih =>
+    intro i
+    rw [List.range'_succ, List.filter_cons, posFrom]
+    have e : c + i + 1 = c + (i + 1) := by omega
+    rw [e]
+    cases h : bit m i
+    · simpa [ih (i + 1)] using h
+    · simp [ih (i + 1), h]
+
+/-- The set positions of the words `w .. n - 1`, as a filter of the bit positions `64 w .. 64 n - 1`. -/
+theorem streamFrom_eq (ws : Nat → UInt64) (n : Nat) : ∀ d w, n - w = d →
+    streamFrom ws n w = (List.range' (64 * w) (64 * d)).filter (fun k => bit (ws (k / 64)) (k % 64)) := by
+  intro d
+  induction d with
+  | zero => intro w h; rw [streamFrom_ge ws n w (by omega)]; rfl
+  | succ d ih =>
+    intro w h
+    rw [streamFrom_lt ws n w (by omega), ih (w + 1) (by omega)]
+    have e : List.range' (64 * w) (64 * (d + 1)) = List.range' (64 * w) 64 ++ List.range' (64 * (w + 1)) (64 * d) := by
+      have h1 := @List.range'_append (64 * w) 64 (64 * d) 1
+      rw [show 64 * (d + 1) = 64 + 64 * d by omega, ← h1, show 64 * w + 1 * 64 = 64 * (w + 1) by omega]
+    rw [e, List.filter_append]
+    congr 1
+    rw [bitsOf, posFrom_map, Nat.add_zero]
+    apply List.filter_congr
+    intro k hk
+    have hk' := List.mem_range'_1.mp hk
+    rw [show k - 64 * w = k % 64 by omega, show k / 64 = w by omega]
+
+/-- `[VS-7]` the cursor at the start stands for exactly the set bits of the mask words, as a filter of the bit positions. -/
+theorem cursorStart_filter (masks : ByteArray) :
+    curStream (wordAt masks) (wordCount masks) (cursorStart masks).1 (cursorStart masks).2 =
+      (List.range (64 * wordCount masks)).filter (fun k => bit (wordAt masks (k / 64)) (k % 64)) := by
+  rw [(cursorStart_spec masks).1, streamFrom_eq (wordAt masks) (wordCount masks) (wordCount masks - 0) 0 rfl, List.range_eq_range']
+  simp
+
 end VbmSimdProofs

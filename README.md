@@ -24,6 +24,7 @@ Lean models and differential tests, each with its own entry in a ledger. It is t
 | `VS-4` | the flag of lane `k` of a mask | `pack8` (eight lane flags to the low eight bits, one multiply) | `pack8_spec`, `pack8_high` |
 | `VS-7` | the set positions of a mask array, in order | `cursorStart`, `cursorNext` (`ctz` and `x & (x - 1)`; no index array) | `cursorStart_spec`, `cursorNext_spec` |
 | `VS-8` | bit `p` of a block mask comes from word `p / 8` | `mask8`, `eqMask64` (the mask of the bytes of a 64-byte block equal to a byte) | `mask8_bit`, `eqMask64_spec` |
+| `VS-9` | `n` zero bytes | `zeroBytes` (the array a scanner stores its masks into; built by doubling) | `zeroBytes_spec` |
 
 **The trusted C** is one header, [`include/vbm_simd.h`](include/vbm_simd.h): `ld64`, `st64`, `st32`, `ctz`, each a few lines, each with a Lean model (`VbmSimd/Shims.lean`) that is its specification, tested against the model on boundary and random cases and against deliberate mutants of the header (`scripts/test-shims.sh`). They are total: no call touches memory outside its array.
 

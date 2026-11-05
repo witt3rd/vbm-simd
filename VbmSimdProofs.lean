@@ -6,4 +6,5 @@ import VbmSimdProofs.Pack
 import VbmSimdProofs.Shims
 import VbmSimdProofs.Cursor
 import VbmSimdProofs.Mask
+import VbmSimdProofs.Bytes
 /-! # vbm-simd proofs (may import `Std` and `Lean`; never linked). See `docs/SPEC.md` for the clauses these discharge. -/
