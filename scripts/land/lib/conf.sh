@@ -8,7 +8,7 @@
 # The keys and their defaults are the stable interface of this tool (README, "Configuration"): conf_defaults sets them, conf_parse reads a file.
 land_conf_keys="LAND_BASE LAND_REMOTE LAND_CI_WORKFLOW LAND_TIER1_JOB LAND_RED_MODE LAND_RED_WAIT LAND_GATES_CMD LAND_TEST_CMD LAND_REGEN_CMD LAND_GEN_CMD
  LAND_GENERATED_LIST LAND_PROD_PATHS LAND_BUDGET_LINES LAND_REQUIRE_TRAILERS LAND_CONVENTIONAL LAND_COMMIT_TYPES LAND_PROTECTED LAND_FIX_PATHS
- LAND_KNOWN_FLAKY LAND_FLAKY_RERUN_WAIT LAND_TIER2_JOB LAND_HOOKS_DIR LAND_AUTO_UPDATE LAND_LOCALE LAND_LOCK_WAIT LAND_TIER1_TIMEOUT LAND_STEP_TIMEOUT LAND_GIT_TIMEOUT"
+ LAND_APPROVALS LAND_APPROVAL_DAYS LAND_GATE_APPEND_ONLY LAND_KNOWN_FLAKY LAND_FLAKY_RERUN_WAIT LAND_TIER2_JOB LAND_HOOKS_DIR LAND_AUTO_UPDATE LAND_LOCALE LAND_LOCK_WAIT LAND_TIER1_TIMEOUT LAND_STEP_TIMEOUT LAND_GIT_TIMEOUT"
 
 conf_defaults() {
   LAND_BASE=main; LAND_REMOTE=origin            # the branch landed on, and the remote that holds it
@@ -22,6 +22,8 @@ conf_defaults() {
   LAND_CONVENTIONAL=1                           # require `type(scope): summary` (or git's own `Revert "..."`)
   LAND_COMMIT_TYPES="feat fix docs chore refactor test perf build ci style revert"
   LAND_PROTECTED=; LAND_FIX_PATHS=              # shell patterns (* matches /): the protected set; the only paths a fix for a red main may touch
+  LAND_APPROVALS=scripts/gate-edit-approvals.txt; LAND_APPROVAL_DAYS=7   # the gate-edit approvals file (lib/approvals.sh; always on, always protected) and how many days an approval stays usable
+  LAND_GATE_APPEND_ONLY=                        # shell patterns: gate-defining files that may only GAIN lines; a removed or changed line needs an exact-diff approval
   LAND_KNOWN_FLAKY=; LAND_FLAKY_RERUN_WAIT=300  # path (in the repository) of the known-flaky list (`name owner YYYY-MM-DD issue`); seconds to wait for the one rerun
   LAND_TIER2_JOB=                               # the name of the Tier 2 job: a real failure of it freezes landing (24 h), a green run lifts the freeze; empty: Tier 2 is not read
   LAND_HOOKS_DIR=scripts/land.d                 # repository-owned hooks (README, "Hooks")
@@ -52,7 +54,8 @@ conf_validate() {
   case $LAND_RED_MODE in push|push+dispatch|off) ;; *) b "LAND_RED_MODE must be push, push+dispatch or off (is '$LAND_RED_MODE')";; esac
   [[ "$LAND_BASE" =~ ^[A-Za-z0-9._/-]+$ ]] || b "LAND_BASE is not a branch name ('$LAND_BASE')"
   [[ "$LAND_REMOTE" =~ ^[A-Za-z0-9._/-]+$ ]] || b "LAND_REMOTE is not a remote name ('$LAND_REMOTE')"
-  for k in LAND_BUDGET_LINES LAND_FLAKY_RERUN_WAIT LAND_RED_WAIT LAND_LOCK_WAIT LAND_TIER1_TIMEOUT LAND_STEP_TIMEOUT LAND_GIT_TIMEOUT; do
+  [[ "$LAND_APPROVALS" =~ ^[A-Za-z0-9_@+-][A-Za-z0-9_./@+-]*$ && "/$LAND_APPROVALS/" != *"/../"* && "/$LAND_APPROVALS/" != *"/./"* && "$LAND_APPROVALS" != */ && "$LAND_APPROVALS" != *//* ]] || b "LAND_APPROVALS must be a plain repository path (is '$LAND_APPROVALS'; it cannot be empty: approvals are always judged)"
+  for k in LAND_APPROVAL_DAYS LAND_BUDGET_LINES LAND_FLAKY_RERUN_WAIT LAND_RED_WAIT LAND_LOCK_WAIT LAND_TIER1_TIMEOUT LAND_STEP_TIMEOUT LAND_GIT_TIMEOUT; do
     [[ "${!k}" =~ ^[0-9]+$ ]] || b "$k must be a whole number (is '${!k}')"
   done
   case $LAND_AUTO_UPDATE in none|patch|minor) ;; *) b "LAND_AUTO_UPDATE must be none, patch or minor (is '$LAND_AUTO_UPDATE'; a major release is never automatic)";; esac

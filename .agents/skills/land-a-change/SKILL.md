@@ -29,6 +29,10 @@ There is exactly one way: `scripts/land-direct` (a stub for the vendored `script
 
 6. After exit 0, read the push CI of main and wait for it: `gh run list --workflow ci.yml --branch main --limit 1`, then `gh run watch <id> --exit-status`.
 
+## A gate line that must go: the approval, announced first
+
+A removed or changed line in a gate-defining file that may only gain lines (exit 12, "may only GAIN lines") lands only through a gate-edit approval (`scripts/land/docs/gate-edit-approvals.md`; `scripts/land/bin/land-direct --print-gate-diff-hash FILE` prints the hash). The order is fixed: (1) the approval record lands ALONE: one line, no other file, its own commit and landing; (2) **announce the approval commit to the independent judge BEFORE the edit commit, always, with the diff hash and the FULL edit diff** (`land-direct` prints `APPROVAL COMMIT: announce to the judge before landing the edit`); (3) the edit lands later and removes the record in the same landing. An agent with landing rights could write its own approval line: the control is that the judge reads the record before the edit lands. Never put the approval and the edit in one commit or one landing (refused), never reuse or quietly delete an approval.
+
 ## Numbers: local vs CI
 
 `tier1_seconds` in the JSON is the **local** Tier 1 time on your machine. The CI run's job time is a **CI** number. Report them separately and label each (`local` / `CI`); they differ and neither stands in for the other.

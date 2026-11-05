@@ -20,3 +20,7 @@ LAND_RED_MODE=push
 #LAND_REQUIRE_TRAILERS=Task-ID
 #LAND_PROTECTED=scripts/land.conf scripts/land.d/* scripts/land/* scripts/land-direct
 #LAND_FIX_PATHS=tests/* .github/*
+
+# Gate-edit approvals (docs/gate-edit-approvals.md): files that may only GAIN lines; a removed or changed line needs an exact-diff approval already on main.
+#LAND_GATE_APPEND_ONLY=scripts/tier1.sh scripts/gates/*
+#LAND_APPROVAL_DAYS=7
