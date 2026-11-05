@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # land-direct: land the worker's LOCAL commits DIRECT ON THE BASE BRANCH (default main): no branch pushed, no pull request, one coordinator.
 #
-#   land-direct [--dry-run] [--check] [--conf PATH] [<rev>]   lands the commits <remote>/<base>..<rev> (default HEAD) of the worktree it is run in,
+#   land-direct [--dry-run] [--check] [--group] [--conf PATH] [<rev>]   lands the commits <remote>/<base>..<rev> (default HEAD) of the worktree it is run in,
 #                                                             each as itself (linear history). --check runs only the land-time checks.
+#   --group: the commits are batch entries a coordinator already checked one by one: the size budget is waived. LAND_LOCK_HELD=1 (operator environment): the coordinator holds the lock
+#   (<git common dir>/vbm-land/lock) for its whole cycle and calls this inside it, so no lock is taken; it is not passed on to Tier 1 or the hooks.
 #   land-direct --hold "<reason>" | --release                 stop / allow landings in this clone (checked at the start, after the lock, before the push)
 #   land-direct --freeze "<reason>" --owner NAME --for 6h     freeze landing but for fixes and reverts (owner and expiry are required) | --thaw
 #   land-direct --status | --version
@@ -34,14 +36,14 @@ set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd); lib=$here/../lib
 . "$lib/conf.sh"; . "$lib/freeze.sh"
 # operator knobs first, then clear every policy variable so only the repository's file can set policy
-o_lock=${LAND_LOCK_WAIT_SECONDS:-}; o_t1=${LAND_TIER1_TIMEOUT:-}; o_st=${LAND_STEP_TIMEOUT:-}; o_gt=${LAND_GIT_TIMEOUT:-}; o_conf=${LAND_CONF:-}; o_fixred=${LAND_FIX_FOR_RED:-}
+o_lock=${LAND_LOCK_WAIT_SECONDS:-}; o_t1=${LAND_TIER1_TIMEOUT:-}; o_st=${LAND_STEP_TIMEOUT:-}; o_gt=${LAND_GIT_TIMEOUT:-}; o_conf=${LAND_CONF:-}; o_fixred=${LAND_FIX_FOR_RED:-}; o_lockheld=${LAND_LOCK_HELD:-}; unset LAND_LOCK_HELD   # the caller's word for THIS process only: Tier 1 and the hooks must not inherit it
 conf_defaults
 gh=${GH:-gh}; export GH=$gh
 
-usage() { echo "usage: land-direct [--dry-run] [--check] [--conf PATH] [<rev>] | --hold REASON | --release | --freeze REASON --owner NAME --for DURATION | --thaw | --status | --version" >&2; exit 2; }
-dry=0; checkonly=0; confpath=scripts/land.conf; [ -z "$o_conf" ] || confpath=$o_conf; args=(); op=; opreason=; owner=; dur=
+usage() { echo "usage: land-direct [--dry-run] [--check] [--group] [--conf PATH] [<rev>] | --hold REASON | --release | --freeze REASON --owner NAME --for DURATION | --thaw | --status | --version" >&2; exit 2; }
+dry=0; checkonly=0; group=0; confpath=scripts/land.conf; [ -z "$o_conf" ] || confpath=$o_conf; args=(); op=; opreason=; owner=; dur=
 while [ $# -gt 0 ]; do case $1 in
-  --dry-run) dry=1;; --check) checkonly=1;;
+  --dry-run) dry=1;; --check) checkonly=1;; --group) group=1;;
   --conf) confpath=${2:?--conf needs a path}; shift;;
   --hold|--freeze) op=${1#--}; opreason=${2:?$1 needs a reason}; shift;;
   --release|--thaw|--status) op=${1#--};;
@@ -160,9 +162,9 @@ prod=0
 if [ -n "$LAND_PROD_PATHS" ] && [ "$LAND_BUDGET_LINES" -gt 0 ]; then
   read -ra pp <<<"$LAND_PROD_PATHS"
   prod=$(git -C "$top" diff --numstat "$remote/$base...$tip0" -- "${pp[@]}" | awk -v g="$gen" 'BEGIN{n=split(g,a,"\n"); for(i=1;i<=n;i++) x[a[i]]=1} !($3 in x) && $1!="-" {t+=$1+$2} END{print t+0}')
-  if [ "$prod" -gt "$LAND_BUDGET_LINES" ] && [ -z "$budget" ]; then die "$prod production lines (${LAND_PROD_PATHS}, not generated) exceed the $LAND_BUDGET_LINES-line budget and no commit carries a 'Diff-Budget: <decomposition note>' trailer; not landing."; fi
+  if [ "$prod" -gt "$LAND_BUDGET_LINES" ] && [ -z "$budget" ] && [ "$group" = 0 ]; then die "$prod production lines (${LAND_PROD_PATHS}, not generated) exceed the $LAND_BUDGET_LINES-line budget and no commit carries a 'Diff-Budget: <decomposition note>' trailer; not landing."; fi
 fi
-echo "land-direct: $ncommits commit(s); config $confsrc$([ "$LAND_BUDGET_LINES" = 0 ] || [ -z "$LAND_PROD_PATHS" ] || echo "; diff budget: $prod production lines (budget $LAND_BUDGET_LINES$([ "$prod" -le "$LAND_BUDGET_LINES" ] || echo ", waived: $budget"))")"
+echo "land-direct: $ncommits commit(s); config $confsrc$([ "$LAND_BUDGET_LINES" = 0 ] || [ -z "$LAND_PROD_PATHS" ] || echo "; diff budget: $prod production lines (budget $LAND_BUDGET_LINES$([ "$prod" -le "$LAND_BUDGET_LINES" ] || echo ", waived: ${budget:-by --group: the caller checked each entry}"))")"
 [ "$checkonly" = 0 ] || { result=checked; echo "land-direct: --check: the land-time checks pass; nothing rebased, tested or pushed"; exit 0; }
 first_trailer=${LAND_REQUIRE_TRAILERS%% *}; task=
 [ -z "$first_trailer" ] || task=$(git -C "$top" log -1 --format=%B "$tip0" | sed -n "s/^$first_trailer: *//p" | sed -n 1p)
@@ -182,7 +184,8 @@ run_hook() { local n=$1; shift; [ -n "$hooks" ] && [ -x "$hooks/$n" ] || return 
 # ---- the red check: ONE definition (bin/land-red); a fix or a revert passes a red or frozen base
 red_check() {
   local rc=0
-  LAND_BASE=$base LAND_RED_MODE=$LAND_RED_MODE LAND_CI_WORKFLOW=$LAND_CI_WORKFLOW LAND_TIER1_JOB=$LAND_TIER1_JOB LAND_RED_WAIT=$LAND_RED_WAIT LAND_STATE_DIR=$state bounded "$((st + LAND_RED_WAIT))" red-check "$here/land-red" || rc=$?
+  kfile=; if [ -n "$LAND_KNOWN_FLAKY" ] && git -C "$top" cat-file -e "$remote/$base:$LAND_KNOWN_FLAKY" 2>/dev/null; then kfile=$state/known-flaky.txt; git -C "$top" show "$remote/$base:$LAND_KNOWN_FLAKY" > "$kfile"; fi   # the list main has, not the proposal's
+  LAND_KNOWN_FLAKY_FILE=$kfile LAND_FLAKY_RERUN_WAIT=$LAND_FLAKY_RERUN_WAIT LAND_TIER2_JOB=$LAND_TIER2_JOB LAND_BASE=$base LAND_RED_MODE=$LAND_RED_MODE LAND_CI_WORKFLOW=$LAND_CI_WORKFLOW LAND_TIER1_JOB=$LAND_TIER1_JOB LAND_RED_WAIT=$LAND_RED_WAIT LAND_STATE_DIR=$state bounded "$((st + LAND_RED_WAIT + LAND_FLAKY_RERUN_WAIT))" red-check "$here/land-red" || rc=$?
   case $rc in
     0) ;;
     10) [ "$isfix" = 1 ] && echo "land-direct: $base is red; this change is the fix: landing" || stop 10 blocked-red "$base is red: land the fix first (a fix(ci): / fix(tests): / revert commit touching only test or CI paths, or LAND_FIX_FOR_RED=1)";;
@@ -222,9 +225,13 @@ lease_acquire() {
     [ "$(date +%s)" -lt "$deadline" ] || return 1
   done
 }
-echo "land-direct: waiting for the lock (at most ${wait_s}s)"
-lease_acquire || { waited=$(( $(date +%s) - tw )); stop 15 busy "another lander held the lock for ${waited}s; run land-direct again"; }
-printf 'pid=%s start=%s task=%s at=%s\n' "$$" "$(pstart "$$" || echo 0)" "${task:-none}" "$(date +%s)" > "$lease"; lease_mine=1; hb
+if [ "$o_lockheld" = 1 ]; then   # LAND_LOCK_HELD=1: a batch coordinator holds this very lock (<git common dir>/vbm-land/lock) for its whole cycle and calls us inside it: no lease of ours
+  echo "land-direct: the caller holds the lock (LAND_LOCK_HELD=1)"
+else
+  echo "land-direct: waiting for the lock (at most ${wait_s}s)"
+  lease_acquire || { waited=$(( $(date +%s) - tw )); stop 15 busy "another lander held the lock for ${waited}s; run land-direct again"; }
+  printf 'pid=%s start=%s task=%s at=%s\n' "$$" "$(pstart "$$" || echo 0)" "${task:-none}" "$(date +%s)" > "$lease"; lease_mine=1; hb
+fi
 waited=$(( $(date +%s) - tw ))
 holdcheck; red_check
 

@@ -1,0 +1,22 @@
+# scripts/land.conf: this repository's landing configuration. Data, not code: LAND_KEY=value per line, no expansion, unknown keys are errors.
+# Every key and its default: the README, "Configuration". Read from origin/<base>, so a change cannot loosen the rules it is judged by.
+LAND_BASE=main
+
+# Tier 1 (the gate; target under 60 s): runs on the rebased combination. Examples by ecosystem:
+#   Rust:    LAND_GATES_CMD=cargo fmt --check && cargo clippy -q -- -D warnings      LAND_TEST_CMD=cargo test -q
+#   Python:  LAND_GATES_CMD=ruff check .                                              LAND_TEST_CMD=pytest -q -x
+#   Node:    LAND_GATES_CMD=npm run -s lint                                           LAND_TEST_CMD=npm test --silent
+#   Shell:   LAND_GATES_CMD=bash -n scripts/*.sh                                      LAND_TEST_CMD=tests/run.sh
+LAND_TEST_CMD=true
+
+# Red main: the Tier 1 job of the latest push run of this workflow. Use LAND_RED_MODE=off for a repository with no CI yet.
+LAND_CI_WORKFLOW=ci.yml
+LAND_TIER1_JOB=tier1
+LAND_RED_MODE=push
+
+# Size budget on production paths (a Diff-Budget: trailer waives it), commit rules, the gate-defining set.
+#LAND_PROD_PATHS=src
+#LAND_BUDGET_LINES=150
+#LAND_REQUIRE_TRAILERS=Task-ID
+#LAND_PROTECTED=scripts/land.conf scripts/land.d/* scripts/land/* scripts/land-direct
+#LAND_FIX_PATHS=tests/* .github/*
