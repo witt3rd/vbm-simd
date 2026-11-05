@@ -33,4 +33,21 @@ def laneEq (c w : UInt64) (k : Nat) : Bool := decide (byte w k = byte c k)
 /-- `[VS-4]` the flag of lane `k` of a mask that carries one flag per byte lane, in the top bit of the lane (bit `8k + 7`). -/
 def laneFlag (m : UInt64) (k : Nat) : Bool := bit m (8 * k + 7)
 
+/-- The positions `i`, in increasing order, of the set bits of `m`, searched from `i` for `f` more bits (the machine behind `[VS-7]`). -/
+def posFrom (m : UInt64) : Nat → Nat → List Nat
+  | 0, _ => []
+  | f + 1, i => if bit m i then i :: posFrom m f (i + 1) else posFrom m f (i + 1)
+
+/-- The positions of the set bits of `m`, increasing. -/
+def bitsOf (m : UInt64) : List Nat := posFrom m 64 0
+
+/-- All set positions (counted in bits from the start of the mask array) of the words `w .. n - 1` of the mask words `ws`, increasing. -/
+def streamFrom (ws : Nat → UInt64) (n : Nat) (w : Nat) : List Nat :=
+  if w < n then (bitsOf (ws w)).map (64 * w + ·) ++ streamFrom ws n (w + 1) else []
+termination_by n - w
+
+/-- `[VS-7]` the stream a bit cursor stands for: the set bits of `m` (the not yet consumed part of word `w`), then every set bit of the later words. -/
+def curStream (ws : Nat → UInt64) (n : Nat) (w : Nat) (m : UInt64) : List Nat :=
+  (bitsOf m).map (64 * w + ·) ++ streamFrom ws n (w + 1)
+
 end VbmSimd

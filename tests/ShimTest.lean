@@ -1,4 +1,5 @@
 import VbmSimd.Shims
+import VbmSimd.Cursor
 /-! # tests/ShimTest.lean: the trusted C shims against their Lean models (Tier 1: `scripts/test-shims.sh`)
 
 Each primitive of `include/vbm_simd.h` (linked in through `lake build shim-test`, which compiles the generated C with `-include include/vbm_simd.h`) is called next to its Lean model on: every array size 0 to 41 with
@@ -25,6 +26,21 @@ def check (st : St) (name : String) (ok : Bool) (detail : String) : IO St := do
   if ok then return { st with count := st.count + 1 }
   IO.eprintln s!"shim-test: MISMATCH {name}: {detail}"
   return { st with bad := st.bad + 1, count := st.count + 1 }
+
+/-- All the set positions of `masks` by walking the cursor (the compiled code, with the shims). -/
+partial def walk (masks : ByteArray) (w : Nat) (m : UInt64) (acc : Array Nat) : Array Nat :=
+  if m == 0 then acc
+  else
+    let p := VbmSimd.curPos w m
+    let (w', m') := VbmSimd.cursorNext masks w m
+    walk masks w' m' (acc.push p)
+
+/-- The same by testing every bit position of every byte (the specification, the slow way). -/
+def naive (masks : ByteArray) : Array Nat := Id.run do
+  let mut r := #[]
+  for p in [0:8 * masks.size] do
+    if (masks.get! (p / 8) >>> (p % 8).toUInt8) &&& 1 == 1 then r := r.push p
+  return r
 
 def run : IO UInt32 := do
   let mut st : St := { s := 0x9E3779B97F4A7C15 }
@@ -73,6 +89,18 @@ def run : IO UInt32 := do
     st := { st with s := next st.s }
     let x := st.s >>> (st.s &&& 63) <<< ((st.s >>> 7) &&& 31)
     st ← check st "ctz random" (ctz x == ctzModel x) s!"{x}"
+  -- the cursor (the compiled `cursorStart`/`cursorNext`) against the bit-by-bit enumeration: empty, partial last word, sparse, dense, all-ones, random
+  for n in [0:50] do
+    for density in [0, 1, 3, 7, 63, 255] do
+      let (s', a) := mkArray st.s n
+      st := { st with s := s' }
+      let mut b := ByteArray.empty
+      for i in [0:a.size] do
+        st := { st with s := next st.s }
+        let byte := if density == 255 then (a.get! i) else if density == 0 then 0 else (a.get! i) &&& (if st.s % (UInt64.ofNat (density + 1)) == 0 then 0xFF else 0)
+        b := b.push (if density == 63 then 0xFF else byte)
+      let (w0, m0) := VbmSimd.cursorStart b
+      st ← check st "cursor" (walk b w0 m0 #[] == naive b) s!"size {n} density {density}"
   if st.bad == 0 then
     IO.println s!"shim-test: ok ({st.count} comparisons of the C shims against their Lean models)"
     return 0
