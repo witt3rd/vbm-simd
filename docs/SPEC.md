@@ -15,6 +15,7 @@ definition or no theorem, or a tag is not a clause. Bit `i` is counted from the 
 | VS-7 | `curStream ws n w m`: the set positions of `m`, then of every later word, increasing | `cursorStart`, `cursorNext`, `seek`, `curPos`, `clearLowest` (walk the set bits of a mask array in order with `ctz` and `x & (x - 1)`, no index array) | `cursorStart_spec`, `cursorStart_filter`, `cursorNext_spec` (`VbmSimdProofs/Cursor.lean`) |
 | VS-8 | `bit p` of a block mask is `f` applied to word `p / 8`, bit `p % 8` | `mask8` (eight per-word results into one 64-bit block mask), `eqMask64` (the mask of the bytes of a 64-byte block equal to a given byte) | `mask8_bit`, `eqMask64_spec` (`VbmSimdProofs/Mask.lean`) |
 | VS-9 | `zeroBytes n`: `n` bytes, all zero | `zeroBytes` (the array a scanner stores its masks into; built by doubling) | `zeroBytes_spec` (`VbmSimdProofs/Bytes.lean`) |
+| VS-10 | `nextSet masks j`: the first set bit of the mask array at or after position `j` (the end when there is none) | `nextSet` (one word masked below `j`, then `ctz`; later words only if empty; no state to carry) | `nextSet_spec` (`VbmSimdProofs/Cursor.lean`) |
 
 Planned clauses (not in the tree yet; each lands with its proof): the UTF-8 validation automaton, the chunking theorem that threads a carry
 state through consecutive blocks.

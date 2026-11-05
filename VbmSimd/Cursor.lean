@@ -31,4 +31,19 @@ def seek (masks : ByteArray) (n : Nat) : Nat → Nat → UInt64 → Nat × UInt6
 @[inline] def cursorNext (masks : ByteArray) (w : Nat) (m : UInt64) : Nat × UInt64 :=
   seek masks (wordCount masks) (wordCount masks) w (clearLowest m)
 
+/-! ## The next set bit at or after a position (stateless)
+
+`cursorNext` walks forward and carries `(w, m)`. A consumer that does not want to carry a cursor (it knows a position `j` and asks "where is the next set bit?") calls `nextSet masks j`: one word, masked below `j`, and
+`ctz`; the following words only if that one is empty. It returns `64 * wordCount masks` (the end) when there is none. Proved: `nextSet_spec` (`[VS-10]`). -/
+
+/-- The first set bit at or after word `w`: `m` is the part of word `w` that counts (`f` is fuel: the words left). -/
+def nextSetGo (masks : ByteArray) (n : Nat) : Nat → Nat → UInt64 → Nat
+  | 0, _, _ => 64 * n
+  | f + 1, w, m => if m != 0 then 64 * w + (ctz m).toNat else if w + 1 < n then nextSetGo masks n f (w + 1) (wordAt masks (w + 1)) else 64 * n
+
+/-- `[VS-10]` The position of the first set bit of the mask array at or after position `j`; `64 * wordCount masks` when there is none. -/
+def nextSet (masks : ByteArray) (j : Nat) : Nat :=
+  let n := wordCount masks
+  if j / 64 < n then nextSetGo masks n (n - j / 64) (j / 64) (wordAt masks (j / 64) &&& ((~~~(0 : UInt64)) <<< (j % 64).toUInt64)) else 64 * n
+
 end VbmSimd

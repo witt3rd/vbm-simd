@@ -101,6 +101,12 @@ def run : IO UInt32 := do
         b := b.push (if density == 63 then 0xFF else byte)
       let (w0, m0) := VbmSimd.cursorStart b
       st ← check st "cursor" (walk b w0 m0 #[] == naive b) s!"size {n} density {density}"
+      -- nextSet at every position (and one past the end): the first set bit of the naive list at or after it, or the end
+      let nv := naive b
+      let endPos := 64 * VbmSimd.wordCount b
+      for j in [0:endPos + 1] do
+        let expect := (nv.find? (· ≥ j)).getD endPos
+        st ← check st "nextSet" (VbmSimd.nextSet b j == expect) s!"size {n} density {density} j {j}"
   if st.bad == 0 then
     IO.println s!"shim-test: ok ({st.count} comparisons of the C shims against their Lean models)"
     return 0

@@ -1,5 +1,6 @@
 import VbmSimd.Cursor
 import VbmSimdProofs.Shims
+import VbmSimdProofs.Mask
 /-! # Proof: the bit cursor walks the set bits in order (`[VS-7]`)
 
 Three layers. (1) `clearLowest x` is `x` without its lowest set bit: `~~~(x - 1) = -x`, and the library knows the bits of `-x` (`BitVec.getLsbD_neg`: bit `i` of `-x` is `x_i` xor "some lower bit is set"), so bit `i` of
@@ -239,5 +240,95 @@ theorem cursorStart_filter (masks : ByteArray) :
       (List.range (64 * wordCount masks)).filter (fun k => bit (wordAt masks (k / 64)) (k % 64)) := by
   rw [(cursorStart_spec masks).1, streamFrom_eq (wordAt masks) (wordCount masks) (wordCount masks - 0) 0 rfl, List.range_eq_range']
   simp
+
+/-! ## The next set bit at or after a position -/
+
+/-- Bit `k` (counted over the whole mask array) of the words `ws`. -/
+def bitPos (ws : Nat → UInt64) (k : Nat) : Bool := bit (ws (k / 64)) (k % 64)
+
+theorem nextSetGo_spec (masks : ByteArray) (n L : Nat) : ∀ f w m,
+    (∀ i, i < 64 → bit m i = (bitPos (wordAt masks) (64 * w + i) && decide (L ≤ 64 * w + i))) →
+    (∀ k, L ≤ k → k < 64 * w → bitPos (wordAt masks) k = false) → L < 64 * (w + 1) → w < n → n ≤ w + f →
+    L ≤ nextSetGo masks n f w m ∧ nextSetGo masks n f w m ≤ 64 * n ∧ (∀ k, L ≤ k → k < nextSetGo masks n f w m → bitPos (wordAt masks) k = false) ∧
+      (nextSetGo masks n f w m = 64 * n ∨ bitPos (wordAt masks) (nextSetGo masks n f w m) = true) := by
+  intro f
+  induction f with
+  | zero => intro w m _ _ _ hw hf; omega
+  | succ f ih =>
+    intro w m hm hb hc hw hf
+    by_cases hz : m = 0
+    · have hall : ∀ i, i < 64 → L ≤ 64 * w + i → bitPos (wordAt masks) (64 * w + i) = false := by
+        intro i hi hLi
+        have := hm i hi
+        rw [hz] at this
+        have h0 : bit (0 : UInt64) i = false := by simp [bit]
+        rw [h0] at this
+        have hLi' : decide (L ≤ 64 * w + i) = true := by simpa using hLi
+        rw [hLi'] at this
+        simpa using this.symm
+      have hb' : ∀ k, L ≤ k → k < 64 * (w + 1) → bitPos (wordAt masks) k = false := by
+        intro k hLk hk
+        by_cases hk' : k < 64 * w
+        · exact hb k hLk hk'
+        · have := hall (k - 64 * w) (by omega) (by omega)
+          rwa [show 64 * w + (k - 64 * w) = k by omega] at this
+      rw [nextSetGo]
+      simp only [hz, bne_self_eq_false, Bool.false_eq_true, ↓reduceIte]
+      by_cases hn : w + 1 < n
+      · simp only [hn, ↓reduceIte]
+        apply ih (w + 1) _ _ hb' (by omega) hn (by omega)
+        intro i hi
+        have h : decide (L ≤ 64 * (w + 1) + i) = true := by simp; omega
+        rw [h]
+        simp only [bitPos, Bool.and_true]
+        rw [show (64 * (w + 1) + i) / 64 = w + 1 by omega, show (64 * (w + 1) + i) % 64 = i by omega]
+      · simp only [hn, ↓reduceIte]
+        refine ⟨by omega, Nat.le_refl _, fun k hLk hk => hb' k hLk (by omega), Or.inl trivial⟩
+    · obtain ⟨hlt, hset, hlow⟩ := ctzModel_spec m hz
+      generalize hc' : (ctzModel m).toNat = c at hlt hset hlow
+      have hr : nextSetGo masks n (f + 1) w m = 64 * w + c := by
+        rw [nextSetGo]
+        have : (m != 0) = true := by simpa using hz
+        simp only [this, ↓reduceIte]
+        show 64 * w + (ctzModel m).toNat = _
+        rw [hc']
+      rw [hr]
+      have hbc := hm c hlt
+      rw [hset] at hbc
+      have hbc' : bitPos (wordAt masks) (64 * w + c) = true ∧ L ≤ 64 * w + c := by simpa using hbc.symm
+      refine ⟨hbc'.2, by omega, fun k hLk hk => ?_, Or.inr hbc'.1⟩
+      by_cases hk' : k < 64 * w
+      · exact hb k hLk hk'
+      · have h1 := hm (k - 64 * w) (by omega)
+        rw [hlow (k - 64 * w) (by omega), show 64 * w + (k - 64 * w) = k by omega] at h1
+        have hLk' : decide (L ≤ k) = true := by simpa using hLk
+        rw [hLk'] at h1
+        simpa using h1.symm
+
+/-- `[VS-10]` `nextSet masks j` is the first set bit at or after `j` (or the end, `64 * wordCount masks`, when there is none). -/
+theorem nextSet_spec (masks : ByteArray) (j : Nat) (hj : j ≤ 64 * wordCount masks) :
+    j ≤ nextSet masks j ∧ nextSet masks j ≤ 64 * wordCount masks ∧ (∀ k, j ≤ k → k < nextSet masks j → bitPos (wordAt masks) k = false) ∧
+      (nextSet masks j = 64 * wordCount masks ∨ bitPos (wordAt masks) (nextSet masks j) = true) := by
+  unfold nextSet
+  simp only []
+  by_cases hw : j / 64 < wordCount masks
+  · simp only [hw, ↓reduceIte]
+    apply nextSetGo_spec masks (wordCount masks) j (wordCount masks - j / 64) (j / 64) _ _ _ (by omega) hw (by omega)
+    · intro i hi
+      have h0 : bit (~~~(0 : UInt64)) (i - j % 64) = true := by rw [bit_not _ _ (by omega)]; simp [bit]
+      have e1 : (64 * (j / 64) + i) / 64 = j / 64 := by omega
+      have e2 : (64 * (j / 64) + i) % 64 = i := by omega
+      rw [bit_and, bit_shl _ _ (by omega) _ hi, h0]
+      simp only [Bool.and_true, bitPos]
+      by_cases h : j % 64 ≤ i
+      · have h1 : decide (j % 64 ≤ i) = true := by simpa using h
+        have h2 : decide (j ≤ 64 * (j / 64) + i) = true := by simp; omega
+        rw [h1, h2, e1, e2]
+      · have h1 : decide (j % 64 ≤ i) = false := by simpa using h
+        have h2 : decide (j ≤ 64 * (j / 64) + i) = false := by simp; omega
+        rw [h1, h2, e1, e2]
+    · intro k hk hk'; omega
+  · simp only [hw, ↓reduceIte]
+    refine ⟨by omega, Nat.le_refl _, fun k hk hk' => by omega, Or.inl trivial⟩
 
 end VbmSimdProofs
