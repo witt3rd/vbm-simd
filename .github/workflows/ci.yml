@@ -25,9 +25,9 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: .lake
-          key: lake-${{ runner.os }}-${{ hashFiles('lean-toolchain', 'lakefile.lean') }}-${{ hashFiles('VbmSimd/**', 'VbmSimdProofs/**') }}
+          key: lake-hosted-${{ runner.os }}-${{ hashFiles('lean-toolchain', 'lakefile.lean') }}-${{ hashFiles('VbmSimd/**', 'VbmSimdProofs/**') }}
           restore-keys: |
-            lake-${{ runner.os }}-${{ hashFiles('lean-toolchain', 'lakefile.lean') }}-
+            lake-hosted-${{ runner.os }}-${{ hashFiles('lean-toolchain', 'lakefile.lean') }}-
       - run: mise exec -- scripts/tier1.sh
   tier2:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
