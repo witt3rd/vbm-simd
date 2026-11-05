@@ -10,6 +10,8 @@ definition or no theorem, or a tag is not a clause. Bit `i` is counted from the 
 | VS-2 | `escSpec b pb`: byte `i` is escaped iff the byte before it is a backslash that is not itself escaped; `pb` is the carry in | `escaped`, `escOut` (the add-with-carry trick; the carry out of the block) | `escaped_spec`, `escOut_spec`, `quote_not_escaped_spec` (`VbmSimdProofs/Escape.lean`) |
 | VS-3 | `laneEq c w k`: byte `k` of `w` equals byte `k` of `c` | `eqLanes`, `zeroLanes` (SWAR compare of eight bytes; flags in the top bit of each lane; nothing else set) | `eqLanes_spec`, `eqLanes_low` (`VbmSimdProofs/Lanes.lean`) |
 | VS-4 | `laneFlag m k`: the flag of lane `k` (bit `8k + 7`) of a mask that carries one flag per lane | `pack8` (the eight flags to the low eight bits, one multiply) | `pack8_spec`, `pack8_high` (`VbmSimdProofs/Pack.lean`) |
+| VS-5 | the models `ld64Model`, `st64Model`, `st32Model` (`VbmSimd/Shims.lean`): a load reads bytes `i .. i+7` little-endian, zero past the end; a store writes little-endian and nothing past the end | the C shims `vbm_simd_ld64`, `vbm_simd_st64`, `vbm_simd_st32` (trusted; tested against the models) | `ld64Model_bit` (`VbmSimdProofs/Shims.lean`); the shims: `scripts/test-shims.sh` |
+| VS-6 | `ctzModel x`: the position of the lowest set bit, 64 for zero | the C shim `vbm_simd_ctz` (trusted; tested against the model) | `ctzModel_spec`, `ctzModel_zero` (`VbmSimdProofs/Shims.lean`); the shim: `scripts/test-shims.sh` |
 
 Planned clauses (not in the tree yet; each lands with its proof): the UTF-8 validation automaton, the chunking theorem that threads a carry
 state through consecutive blocks, `flatten` (the set bits of a mask as an index).

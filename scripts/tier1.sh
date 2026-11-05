@@ -43,6 +43,9 @@ if lake env lean -DwarningAsError=true "$st" >/dev/null 2>&1; then echo "tier1: 
 echo "tier1: zero-warning build: negative self-test ok"
 lake build VbmSimd VbmSimdProofs
 
+# 3b. The trusted C shims against their Lean models, and the test's own ability to fail (mutants of the header).
+scripts/test-shims.sh
+
 # 4. The axiom gate: every constant of ours depends only on propext, Classical.choice, Quot.sound (--selftest: a non-standard axiom is rejected).
 lake env lean --run scripts/AxiomGate.lean --selftest
 

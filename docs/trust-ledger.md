@@ -4,8 +4,9 @@ One file listing **everything outside our direct control that vbm-simd executes 
 *verified by construction* is the first priority of the project: the size of the unverified base, and the care taken at its boundary, is the most important measure. A boundary with no entry here
 does not land (`scripts/trust-ledger-check.sh`, Tier 1).
 
-**Snapshot at the first landing:** no C and no `@[extern]` yet: the library is Lean only, and the kernels are proved against the machines of `docs/SPEC.md`. The ledger covers what the *build*
-depends on. The trusted shims (`ld64`, `st64`, `ctz`, `st32`, and later one per instruction set) arrive in their own landings, **one entry each**, each with a Lean model and a differential test.
+**Snapshot at the first landing:** no C and no `@[extern]`: the library was Lean only, and the kernels are proved against the machines of `docs/SPEC.md`. The ledger covered what the *build* depends on.
+
+**Snapshot at the shims (T10):** the portable shim header `include/vbm_simd.h` (four `static inline` functions, about 60 lines of C with comments) is the first and only trusted C. The vector-instruction shims (AVX2, AVX-512, NEON, WebAssembly simd128) arrive in their own landings, **one entry each**, each with its Lean model and a differential test against the portable path.
 
 ## How the gate keeps this file true
 
@@ -103,3 +104,14 @@ Entry format: **What** it is; **Enters** where it enters; **Assumes** what we as
 - **Owner:** the vbm-land repository (same owner); the pin is changed only by `scripts/land/bin/land-update`.
 - **Plan:** accept, because the tool is what the owner's other repositories use and its failure modes are mechanical refusals; the independent push CI re-runs Tier 1 on what it landed.
 - **Covers:** `file:scripts/land/PIN`
+
+## The trusted C
+
+### T10. The portable shim header: include/vbm_simd.h (`ld64`, `st64`, `st32`, `ctz`)
+- **What:** about 60 lines of C, four `static inline` functions, each the body of an `@[extern]` function of `VbmSimd/Shims.lean` whose Lean body is its specification (the model): `vbm_simd_ld64` (an 8-byte little-endian load from a Lean `ByteArray`, zero past the end), `vbm_simd_st64` and `vbm_simd_st32` (8- and 4-byte little-endian stores, in place when the array is unshared, copied first when shared, nothing written past the end), `vbm_simd_ctz` (count of trailing zero bits, 64 for zero; `__builtin_ctzll`). They exist because Lean's emitted C for byte-at-a-time assembly is 2.4 times slower than one load or store. Each is total (no out-of-range access, no precondition), moves or counts bits and decides nothing. A wrong load, a store through a shared array, or a miscount would be a bug no Lean proof sees: they are the unverified base of every kernel built on them.
+- **Enters:** `include/vbm_simd.h`; every consumer compiles its generated C with `-include include/vbm_simd.h` (the repository's own `shim-test` and the `lean_lib` do, `lakefile.lean`); the four `@[extern]` symbols `vbm_simd_ld64`, `vbm_simd_st64`, `vbm_simd_st32`, `vbm_simd_ctz`.
+- **Assumes:** the Lean models of `VbmSimd/Shims.lean` (the specification, in `docs/SPEC.md` clauses VS-5 and VS-6); a little-endian host with GCC or clang builtins (the header refuses others at compile time); the Lean runtime's `lean_sarray_*` functions behave as `lean.h` documents (T03); a Lean `ByteArray` is a scalar array of bytes.
+- **Test:** `scripts/test-shims.sh` runs `tests/ShimTest.lean` (about 32000 comparisons of each C function against its model: every array size 0 to 41 with every index through, at and past the end including the largest `USize`; every single-bit and bit-pair word for `ctz`, 20000 random; a shared array must be copied) and then builds six deliberate mutants of the header (a wrong offset, a skipped copy-on-share, a wrong zero case, two skipped partial stores) in scratch copies, each of which the same test must catch.
+- **Owner:** the repository owner (CODEOWNERS: `include/`).
+- **Plan:** verify, in part: exhaustive testing is impossible for 64-bit inputs, so the argument is the boundary and random cases plus mutants; a formal model of the C (a verified C compiler's semantics) would replace the argument and is out of scope. The header stays at a few dozen lines on purpose.
+- **Covers:** `file:include/vbm_simd.h` `extern:vbm_simd_ld64` `extern:vbm_simd_st64` `extern:vbm_simd_st32` `extern:vbm_simd_ctz`

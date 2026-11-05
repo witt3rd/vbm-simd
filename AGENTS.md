@@ -7,8 +7,8 @@ escape carry, byte-lane classification, UTF-8 validation), their proofs against 
 base is `docs/trust-ledger.md`. `README.md` is the public face (kept short); `docs/method.md` is the proof pattern.
 
 ## Status
-Landed: `VbmSimd/Spec.lean` (the machines), `PrefixXor.lean`, `Escape.lean`, `Lanes.lean` and their proofs (clauses VS-1 to VS-4). Planned, one landing each: the chunking theorem,
-UTF-8 validation, `flatten`, the trusted shims (`ld64`, `st64`, `ctz`, `st32`; later ISA shims, each its own ledger entry). Toolchain: Lean 4.35.0 pinned in `mise.toml` and `lean-toolchain`
+Landed: `VbmSimd/Spec.lean` (the machines), `PrefixXor.lean`, `Escape.lean`, `Lanes.lean` and their proofs (clauses VS-1 to VS-4); `Shims.lean` with `include/vbm_simd.h` (VS-5, VS-6, ledger T10). Planned, one landing each: the chunking theorem,
+UTF-8 validation, `flatten`, then the vector-ISA shims (each its own ledger entry). Toolchain: Lean 4.35.0 pinned in `mise.toml` and `lean-toolchain`
 (no elan). Run everything as `mise exec -- ...`; the gate is `mise exec -- scripts/tier1.sh`.
 
 ## Hard rules
@@ -29,4 +29,4 @@ UTF-8 validation, `flatten`, the trusted shims (`ld64`, `st64`, `ctz`, `st32`; l
 - Decide anything reversible and log it. Escalate only money, data loss, secrets, publishing, or harm to a third party; say so in one line and stop.
 
 ## Layout
-`VbmSimd/` the library (`Spec.lean` the machines; one module per kernel) · `VbmSimdProofs/` the proofs · `include/` the trusted C headers (none yet) · `scripts/` the gates (`land/` is vendored) · `docs/` spec, trust ledger, decisions, method, findings.
+`VbmSimd/` the library (`Spec.lean` the machines; one module per kernel) · `VbmSimdProofs/` the proofs · `include/` the trusted C header · `tests/` the shim test · `scripts/` the gates (`land/` is vendored) · `docs/` spec, trust ledger, decisions, method, findings.

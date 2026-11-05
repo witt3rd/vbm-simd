@@ -9,7 +9,14 @@ compiles to C, to WASM and into its own artifact, so nothing from `Std` or `Lean
 @[default_target]
 lean_lib VbmSimd where
   globs := #[.andSubmodules `VbmSimd]
+  moreLeancArgs := #["-include", "include/vbm_simd.h"]
 
 /-- The proofs: may import `Std` and `Lean`; NEVER linked (nothing in `VbmSimd` may import it). -/
 lean_lib VbmSimdProofs where
   globs := #[.andSubmodules `VbmSimdProofs]
+
+/-- The shim test: the trusted C of `include/vbm_simd.h` against its Lean models (`scripts/test-shims.sh`, Tier 1). Not part of any export. -/
+lean_exe «shim-test» where
+  srcDir := "tests"
+  root := `ShimTest
+  moreLeancArgs := #["-include", "include/vbm_simd.h"]
