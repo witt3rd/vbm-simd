@@ -1,0 +1,14 @@
+# The owner approves the specification, the trusted C, the gates, the pins, the workflows and the governance files.
+/VbmSimd/                  @witt3rd
+/VbmSimd.lean              @witt3rd
+/include/                  @witt3rd
+/docs/SPEC.md              @witt3rd
+/docs/trust-ledger.md      @witt3rd
+/docs/decisions/           @witt3rd
+/lean-toolchain            @witt3rd
+/mise.toml                 @witt3rd
+/lakefile.lean             @witt3rd
+/AGENTS.md                 @witt3rd
+/CODEOWNERS                @witt3rd
+/.github/workflows/        @witt3rd
+/scripts/                  @witt3rd

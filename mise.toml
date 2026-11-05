@@ -1,0 +1,3 @@
+# Project toolchain pin (no elan: the pinned release tarball is the toolchain). The whole tree builds with this one Lean (docs/decisions/0001-vbm-simd.md).
+[tools]
+"github:leanprover/lean4" = "4.35.0"
