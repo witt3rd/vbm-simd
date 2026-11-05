@@ -4,11 +4,15 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 t0=$(date +%s)
+# RAN-EVIDENCE (docs/decisions/0002-ran-evidence.md): a gate or self-test that never ran must not pass. Every counted gate and test script below runs through `scripts/ran-evidence.sh gate NAME REGEX CMD...`, which
+# fails when the command fails, prints no count or prints a zero (a refused tool, a SKIPPED check or a stop by a guard prints none); scripts/test_ran_evidence.sh is the shared negative test.
+[ "$(grep -c '^ran_done()' scripts/lib-ran.sh)" = 1 ] && [ "$(grep -c '^must_fail()' scripts/lib-ran.sh)" = 1 ] && [ -x scripts/ran-evidence.sh ] && [ "$(grep -c '^  gate)' scripts/ran-evidence.sh)" = 1 ] || { echo "tier1: scripts/lib-ran.sh or scripts/ran-evidence.sh does not define the ran-evidence mechanism" >&2; exit 1; }
 scripts/land/bin/land-check
 scripts/lint.sh
 scripts/lint-pipefail.sh
 scripts/lint-proof-eval.sh --selftest
-scripts/test_lint_workflows.sh
+scripts/ran-evidence.sh gate test_lint_workflows '^ran: test_lint_workflows: ([0-9]+) cases$' scripts/test_lint_workflows.sh
+scripts/ran-evidence.sh gate test_ran_evidence '^ran: test_ran_evidence: ([0-9]+) cases$' scripts/test_ran_evidence.sh
 python3 scripts/lint-workflows.py
 
 # Lean sources under the roots that exist.
@@ -37,19 +41,17 @@ printf 'import VbmSimd.Spec\n' > "$st"; [ -z "$(bad_imports "$st")" ] || { echo 
 echo "tier1: Init-only import scan: negative self-tests ok"
 
 # 3. Zero-warning build of both libraries (warningAsError is set in lakefile.lean); the mechanism is checked.
-grep -q 'warningAsError, true' lakefile.lean || { echo "tier1: lakefile.lean does not set warningAsError" >&2; exit 1; }
-printf 'def f (x : Nat) : Nat :=\n  let y := 1\n  2\n' > "$st"
-if lake env lean -DwarningAsError=true "$st" >/dev/null 2>&1; then echo "tier1: a build with a warning succeeds under warningAsError (the zero-warning gate cannot fail)" >&2; exit 1; fi
-echo "tier1: zero-warning build: negative self-test ok"
+# The zero-warning mechanism (scripts/check-zero-warning.sh): the option is set; a file with a warning FAILS with the warning's own diagnostic (a refused or missing lake also fails, with another message: that is not a pass); a clean file passes.
+scripts/check-zero-warning.sh
 lake build VbmSimd VbmSimdProofs
 
 # 3b. The trusted C shims against their Lean models, and the test's own ability to fail (mutants of the header).
-scripts/test-shims.sh
+scripts/ran-evidence.sh gate test-shims '^shim-test: ok \(([0-9]+) comparisons' scripts/test-shims.sh
 
 # 4. The axiom gate: every constant of ours depends only on propext, Classical.choice, Quot.sound (--selftest: a non-standard axiom is rejected).
-lake env lean --run scripts/AxiomGate.lean --selftest
+scripts/ran-evidence.sh gate axiom-gate 'axiom gate: ([0-9]+) constants checked' lake env lean --run scripts/AxiomGate.lean --selftest
 
 # 5. The spec clauses, and the trust ledger (docs/trust-ledger.md).
-scripts/spec-check.sh
-scripts/trust-ledger-check.sh
+scripts/ran-evidence.sh gate spec-check '^spec-check: ok \(([0-9]+) clauses' scripts/spec-check.sh
+scripts/ran-evidence.sh gate trust-ledger '^trust ledger: ([0-9]+) entries' scripts/trust-ledger-check.sh
 echo "tier1: ok ($(( $(date +%s) - t0 )) s)"

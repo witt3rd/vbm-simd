@@ -3,12 +3,16 @@
 set -euo pipefail
 export LC_ALL=C
 cd "$(dirname "$0")/.."
-python3 scripts/lint-workflows.py >/dev/null || { echo "test_lint_workflows: the repo's workflows are invalid" >&2; exit 1; }
+. scripts/lib-ran.sh   # ran_case counts each executed check, ran_done prints the evidence line `ran: NAME: N cases` (docs/decisions/0002-ran-evidence.md)
+python3 scripts/lint-workflows.py >/dev/null && ran_case || { echo "test_lint_workflows: the repo's workflows are invalid" >&2; exit 1; }
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 export LINT_VISIBILITY_FILE=$T/visibility   # absent = public: self-hosted must be refused
 neg() { # neg <name> <yaml>
   printf '%s\n' "$2" > "$T/$1.yml"
-  if python3 scripts/lint-workflows.py "$T/$1.yml" >/dev/null 2>&1; then echo "test_lint_workflows: '$1' was accepted" >&2; exit 1; fi
+  if python3 scripts/lint-workflows.py "$T/$1.yml" >/dev/null 2>"$T/$1.err"; then echo "test_lint_workflows: '$1' was accepted" >&2; exit 1; fi
+  # a rejection counts only when the linter SAYS why: a python that was refused, a crash (traceback) or silence is not a rejection of this shape
+  { [ -s "$T/$1.err" ] && ! grep -qE 'Traceback|heavy:' "$T/$1.err"; } || { echo "test_lint_workflows: '$1' failed without a linter diagnostic (it may not have run): $(head -c 300 "$T/$1.err")" >&2; exit 1; }
+  ran_case
 }
 head='name: x
 on: push'
@@ -102,4 +106,5 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - run: echo \${{ secrets.DEPLOY_KEY }}"
+ran_done test_lint_workflows
 echo "test_lint_workflows: ok (valid accepted; 13 invalid shapes each rejected)"
