@@ -15,17 +15,21 @@ done
 unset RUN_SCOPED_NO_SYSTEMD
 rc=0; $rs 'b d' 5 true 2>/dev/null || rc=$?; [ $rc = 2 ] && ran_case || fail "a bad NAME was accepted"
 [ "$($rs d 5 echo 'a$b $$ ${x}')" = 'a$b $$ ${x}' ] && ran_case || fail "a dollar in an argument was altered"
-if systemctl --user is-system-running >/dev/null 2>&1 || [ "$(systemctl --user is-system-running 2>/dev/null)" = degraded ]; then
-  # abort: the child records its pid, the wrapper is SIGTERMed (its own child pid, started here), the scope must be gone and the child dead
-  $rs abort 120 sh -c 'echo $$ > "$1"; exec sleep 100' sh "$tmp/pid" & w=$!
-  for _ in $(seq 50); do [ -s "$tmp/pid" ] && break; sleep 0.1; done
-  [ -s "$tmp/pid" ] || fail "the scoped child never started"
-  c=$(cat "$tmp/pid"); kill -0 "$c" || fail "the scoped child is not running"
+# abort, on BOTH paths: the child records its pid, the wrapper is SIGTERMed (the pid started here), the child must die. The fallback always runs; the systemd path runs where a user manager works
+# (where it does not, the fallback IS the path in use, and that is said, not skipped).
+modes="fallback"
+if systemctl --user is-system-running >/dev/null 2>&1 || [ "$(systemctl --user is-system-running 2>/dev/null)" = degraded ]; then modes="scope fallback"; else echo "test_run_scoped: no systemd user manager: the fallback path is the one in use"; fi
+for mode in $modes; do
+  if [ $mode = fallback ]; then export RUN_SCOPED_NO_SYSTEMD=1; else unset RUN_SCOPED_NO_SYSTEMD; fi
+  rm -f "$tmp/pid" "$tmp/gpid"
+  $rs abort 120 sh -c 'echo $$ > "$1"; sleep 100 & echo $! > "$2"; wait' sh "$tmp/pid" "$tmp/gpid" & w=$!
+  for _ in $(seq 50); do [ -s "$tmp/gpid" ] && break; sleep 0.1; done
+  [ -s "$tmp/gpid" ] || fail "$mode: the scoped child never started"
+  c=$(cat "$tmp/pid"); g=$(cat "$tmp/gpid"); kill -0 "$c" || fail "$mode: the scoped child is not running"
   kill -TERM "$w"; wait "$w" || true
-  for _ in $(seq 50); do kill -0 "$c" 2>/dev/null || break; sleep 0.1; done
-  ! kill -0 "$c" 2>/dev/null || fail "an aborted run left its child alive (orphan)"
+  for _ in $(seq 50); do kill -0 "$c" 2>/dev/null || kill -0 "$g" 2>/dev/null || break; sleep 0.1; done
+  ! kill -0 "$c" 2>/dev/null || fail "$mode: an aborted run left its child alive (orphan)"
+  ! kill -0 "$g" 2>/dev/null || fail "$mode: an aborted run left its grandchild alive (orphan)"
   ran_case
-  echo "test_run_scoped: ok (status, bound, abort reaped; scope and fallback)"; ran_done test_run_scoped
-else
-  echo "test_run_scoped: ok (status, bound; no systemd user manager here: abort check SKIPPED)"; ran_done test_run_scoped
-fi
+done
+echo "test_run_scoped: ok (status, bound, abort reaped; paths: $modes)"; ran_done test_run_scoped

@@ -8,8 +8,8 @@
 # LIMIT (stated, accepted): this is a guard against accidents, not against a determined subject. Evasion by indirection (a variable holding the runner, a bash -c string, a renamed copy) is not detected.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-entries=$(grep -vE '^[[:space:]]*(#|$)' scripts/long-runners.txt || true)
-[ -n "$entries" ] || { echo "lint-scoped-runners: scripts/long-runners.txt lists no runner" >&2; exit 1; }
+entries=$(grep -vE '^[[:space:]]*(#|$)' scripts/long-runners.txt 2>/dev/null || true)
+[ -f scripts/long-runners.txt ] || { echo "lint-scoped-runners: scripts/long-runners.txt is missing" >&2; exit 1; }   # an empty list is allowed: a repository with no long runner
 runners=$(grep -vE '^self ' <<<"$entries" | paste -sd'|' | sed 's/\./\\./g' || true)
 selfs=$(sed -n 's/^self //p' <<<"$entries")
 pre='(^|[;&|(]|\$\(|--|[[:space:]](python3?|bash|sh|exec|time|nice|env))[[:space:]]*(python3?[[:space:]]+|bash[[:space:]]+|sh[[:space:]]+)?(\./)?(scripts/)?'

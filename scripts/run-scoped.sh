@@ -3,7 +3,7 @@
 # RuntimeMaxSec=MAXSEC, so an aborted run (the caller killed, a SIGKILL included, a terminal gone) cannot leave the runner or its children orphaned:
 # the scope is stopped on exit, on a signal and, if even this wrapper dies, by RuntimeMaxSec. Exit status = the command's (124 on the bound).
 # Standing rule: nobody kills by a derived pid or a pattern; this helper stops only its own scope, by the unit name it chose.
-# Without a usable systemd user manager (hosted CI) it falls back to `timeout` in its own process group: the bound still holds.
+# Without a usable systemd user manager (hosted CI) it falls back to setsid + timeout --kill-after with a trap that stops its own group: the same three guarantees (bound, abort, reaped on exit).
 # scripts/lint-scoped-runners.sh (Tier 1) fails any script that runs a listed runner without going through here.
 set -uo pipefail
 # internal: the scoped side. The arguments travel in a NUL-delimited file, because systemd-run's treatment of $ in its own arguments differs between versions.
@@ -16,13 +16,23 @@ usable=1
 command -v systemd-run >/dev/null 2>&1 || usable=0
 systemctl --user is-system-running >/dev/null 2>&1 || [ "$(systemctl --user is-system-running 2>/dev/null)" = degraded ] || usable=0
 [ -z "${RUN_SCOPED_NO_SYSTEMD:-}" ] || usable=0   # test hook: force the fallback
-if [ $usable = 0 ]; then exec timeout --kill-after=10 "$max" "$@"; fi
+if [ $usable = 0 ]; then
+  # Fallback (no systemd user manager: hosted CI, containers): the same guarantees by process group. The command runs in its own session (setsid: pgid = the pid held here), under
+  # timeout --kill-after for the bound, and a trap stops that group on exit or a signal. Nothing is signalled by pattern or by a derived pid.
+  trap 'kill -TERM -- "-${gpid:-0}" 2>/dev/null || true' EXIT
+  trap 'kill -TERM -- "-${gpid:-0}" 2>/dev/null || true; exit 143' INT TERM HUP
+  setsid timeout --kill-after=10 "$max" "$@" <&0 &
+  gpid=$!
+  wait $gpid; rc=$?
+  trap - EXIT; kill -TERM -- "-$gpid" 2>/dev/null || true   # stragglers of a command that has exited
+  exit $rc
+fi
 unit="vbm-$name-$$-$RANDOM"
 stop() { systemctl --user stop "$unit.scope" >/dev/null 2>&1 || true; }
 trap 'stop; rm -f "${argf:-}"' EXIT
 trap 'stop; exit 143' INT TERM HUP
 argf=$(mktemp); printf '%s\0' "$@" > "$argf"
-systemd-run --user --scope --quiet --collect --unit="$unit" -p RuntimeMaxSec="$max" -- "$(readlink -f "$0")" --exec-argfile "$argf" &
+systemd-run --user --scope --quiet --collect --unit="$unit" -p RuntimeMaxSec="$max" -- "$(readlink -f "$0")" --exec-argfile "$argf" <&0 &
 wait $!; rc=$?
 # a scope that hit RuntimeMaxSec is killed by SIGTERM: report it the way timeout does
 [ $rc -ne 143 ] || rc=124
