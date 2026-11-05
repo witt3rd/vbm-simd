@@ -1,4 +1,4 @@
-# Is this repository's pinned copy of vbm-land intact, and is a newer release out? Weekly and on dispatch. Read-only: it changes nothing.
+# Is this repository's pinned copy of vbm-land intact, and is a newer release out? On dispatch; weekly too when the source is public (install keeps the two lines marked weekly only then: a private source needs a secret, so a scheduled run would fail red; run it by hand: land-update --check). Read-only: it changes nothing.
 # A separate workflow from the gate (LAND_CI_WORKFLOW), so a failure here can never make the base branch "red" and block landing: it is a visible reminder, not a gate.
 # The update itself is yours: run the update-vbm-land skill (scripts/land/bin/land-update <tag>). A private source needs a read token in the secret VBM_LAND_TOKEN.
 # LAND_AUTO_UPDATE in scripts/land.conf (none | patch | minor; default none) lets this workflow land the update itself through the repository's own lander (a major release never):
@@ -6,8 +6,8 @@
 # a runner that has the toolchain of your Tier 1, and `permissions: contents: write` is NOT needed (the token carries the right). With none it only reports.
 name: vbm-land-update
 on:
-  schedule:
-    - cron: '23 6 * * 1'
+  schedule:   #weekly
+    - cron: '23 6 * * 1'   #weekly
   workflow_dispatch:
 permissions:
   contents: read

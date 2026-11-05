@@ -28,7 +28,7 @@ Use only if the repository is yours alone (no outside contributors), main is not
    gh api repos/OWNER/NAME/rulesets --input scripts/land/templates/ruleset-protect-release-tags.json
    gh api repos/OWNER/NAME/rules/branches/main --jq '.[].type'     # deletion, non_fast_forward
    ```
-   Before the repository goes public, do every item of `scripts/land/templates/PUBLIC-REPO-SETTINGS.md` (fork pull-request workflows need approval for all outside contributors, a read-only workflow token that cannot approve pull requests, private vulnerability reporting, secret scanning with push protection, delete head branches on merge). `bin/land-audit DIR` (in the vbm-land source) warns when a default branch lacks the protection.
+   Before the repository goes public, do every item of `scripts/land/templates/PUBLIC-REPO-SETTINGS.md` (fork pull-request workflows need approval for all outside contributors, a read-only workflow token that cannot approve pull requests, private vulnerability reporting, secret scanning with push protection, delete head branches on merge), including the runners item: if the private phase used a self-hosted runner (`runs-on: self-hosted`, with `.github/visibility` = `private`), before going public put `runs-on` back to hosted, remove the runner, leave `LAND_RED_MODE` unchanged, and set `.github/visibility` to `public` (the lint fails otherwise). `bin/land-audit DIR` (in the vbm-land source) warns when a default branch lacks the protection.
 7. Verify the drift check and the land-time checks, then commit as one change:
    ```
    scripts/land/bin/land-check

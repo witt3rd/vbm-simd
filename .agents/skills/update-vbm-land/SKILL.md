@@ -24,6 +24,8 @@ The weekly workflow runs the drift check and `land-update --auto`; "behind" show
    Or by hand: `scripts/land/bin/land-update vX.Y.Z` (stages only), `scripts/land/bin/land-check`, review `git status`, one commit, `scripts/land-direct`.
 3. After the landing read the push CI of the base branch.
 
+**The weekly schedule** is shipped only when the source is public (`.github/visibility` = `public` in the source at install time); while it is private the workflow is dispatch-only and the check is `scripts/land/bin/land-update --check` by hand (or Run workflow). When the source flips to public, add the `schedule:` trigger back to your workflow (checklist item 11 in `scripts/land/templates/PUBLIC-REPO-SETTINGS.md`).
+
 **Automatic updates** are the repository's choice: `LAND_AUTO_UPDATE=patch|minor` in `scripts/land.conf` (default `none`) lets the weekly workflow do step 2 itself with a push token the repository holds (`VBM_LAND_PUSH_TOKEN`), on a runner with your Tier 1 toolchain. A major release is never automatic. If it fails, the workflow fails visibly: read it and do step 1 and 2 by hand.
 
 ## Signed releases
