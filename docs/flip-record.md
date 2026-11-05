@@ -12,7 +12,7 @@ The history was **not** re-written or re-rooted. Every commit hash is one that c
 - **Task identifiers.** Three commits carry `Task`/`Task-ID` trailers naming work items of other public VBM repositories.
 - Nothing else: no secret, no host name, no address, no local path, no other person's data, no word for the private build machines.
 
-## What was checked (prep run of 2026-11-05; the tip it covers is the one named in the proof section below)
+## What was checked (prep run of 2026-11-05; mirror of the remote taken at commit 040b4f1: `main`, 21 commits, no tags)
 
 | Check | Result |
 |---|---|
@@ -21,8 +21,12 @@ The history was **not** re-written or re-rooted. Every commit hash is one that c
 | the VBM public-readiness lint (hash list of private names, path patterns) over the tree | clean |
 | a scan of every commit message, path, author line and changed line of all refs for the same hashes plus plain patterns (host names, home paths, e-mails, addresses) | only the accepted items above |
 | `scripts/lint.sh` (this repository's own lint) and a grep of the tree for host names, addresses and home paths | clean (the one e-mail left is the vendored update bot's `noreply` address) |
-| Tier 1 (`scripts/tier1.sh`) in a fresh `ubuntu:24.04` container after dependencies were fetched, with the network disconnected | see "Clean-container proof" |
-| a scratch Lake project that requires this repository by commit and builds with the shim header | see "Clean-container proof" |
+| Tier 1 (`scripts/tier1.sh`) in a fresh `ubuntu:24.04` container after dependencies were fetched, with the network disconnected | passes, see "Clean-container proof" |
+| a scratch Lake project that requires this repository by commit (the pin vbm-json's SIMD work uses, and main's tip) and builds and runs with the shim header | passes, see "Clean-container proof" |
+
+## Clean-container proof
+
+A fresh `ubuntu:24.04` (image digest `sha256:fe81560990fae86dc4743202b2cb4d3df98d0bcf949173cecef15ce1127ef852`), no credentials. After the dependencies were fetched (git, python3 and PyYAML, build tools, mise and the pinned Lean 4.35.0) the network was disconnected, and in it, on commit 040b4f1: Tier 1 passes (41 s); the public-readiness lint passes; on the **flip-day tree** (the prepared patch applied) Tier 1 passes, the lint passes and Tier 2 passes (`leanchecker --fresh` of both libraries and nanoda: 59850 declarations, no typechecker errors); and a scratch Lake project that requires this repository by commit builds and runs a program through the trusted shim header, both at the commit vbm-json's SIMD work pins (`433268697353f3b5f0ad1197b2ab2475d270dae9`) and at the tip. The container has no systemd user manager, so the hosted-CI fallback of `scripts/run-scoped.sh` is the path exercised, as on a hosted runner.
 
 ## The flip, in order
 
