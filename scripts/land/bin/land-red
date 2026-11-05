@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# The ONE definition of a red main, read by bin/land-direct (and, later, the watchdog).
+#
+#   land-red        exit 0: main may be landed on | 10: main is RED | 14: landing is FROZEN | 20: not knowable (fail closed) | 2: bad usage
+#
+# RED = the Tier 1 job ($LAND_TIER1_JOB) of the latest PUSH run of $LAND_CI_WORKFLOW on $LAND_BASE failed (failure or timed_out), finished or not:
+# Tier 1 success is green even while a later job of the same run is still going or failed. In mode push+dispatch the latest run of the workflow that was
+# started by a dispatch counts too (a bot that merges with a token triggers no push run). Mode `off` has no CI to ask (a repository without CI yet).
+#   * A Tier 1 that has not finished (or no Tier 1 job yet) is waited for $LAND_RED_WAIT seconds and then NOT counted: the lander's own Tier 1 is the gate.
+#   * A failure whose annotations or failed log match the infrastructure classifier (lib/infra-re.sh) is not red.
+#   * No run yet, or the workflow is not on the base branch yet (HTTP 404): nothing can be red.
+#   * `gh` failing, or its answer unreadable: exit 20. Not knowing is not green.
+# FROZEN = the freeze marker $LAND_STATE_DIR/freeze exists and has not expired (README, "Freeze"). It is a person's or the watchdog's act and is honoured in every mode.
+# Environment: LAND_BASE LAND_CI_WORKFLOW LAND_TIER1_JOB LAND_RED_MODE LAND_RED_WAIT LAND_STATE_DIR (set by land-direct; defaults as in lib/conf.sh), GH, RED_SLEEP, RED_TIER1_POLL.
+export LC_ALL=C
+set -euo pipefail
+here=$(cd "$(dirname "$0")" && pwd)
+e_base=${LAND_BASE-}; e_mode=${LAND_RED_MODE-}; e_wf=${LAND_CI_WORKFLOW-}; e_job=${LAND_TIER1_JOB-}; e_wait=${LAND_RED_WAIT-}   # what land-direct passed in
+. "$here/../lib/conf.sh"; conf_defaults
+base=${e_base:-$LAND_BASE}; mode=${e_mode:-$LAND_RED_MODE}; wf=${e_wf:-$LAND_CI_WORKFLOW}; t1job=${e_job:-$LAND_TIER1_JOB}; wait_s=${e_wait:-$LAND_RED_WAIT}
+gh=${GH:-gh}; poll_s=${RED_TIER1_POLL:-10}; sleeper=${RED_SLEEP:-sleep}
+[ $# -eq 0 ] || { echo "usage: land-red" >&2; exit 2; }
+case $mode in push|push+dispatch|off) ;; *) echo "land-red: unknown LAND_RED_MODE '$mode'" >&2; exit 2;; esac
+state=${LAND_STATE_DIR:-$(git rev-parse --path-format=absolute --git-common-dir)/vbm-land}
+. "$here/../lib/freeze.sh"
+if freeze_active "$state/freeze"; then echo "land-red: $base is FROZEN: $(freeze_describe "$state/freeze"). Only a fix or a revert lands." >&2; exit 14; fi
+[ "$mode" != off ] || exit 0
+. "$here/../lib/infra-re.sh"
+events='.event=="push"'; [ "$mode" = push ] || events='.event=="push" or .event=="workflow_dispatch"'
+cannot() { echo "land-red: cannot tell whether $base is red ($1): not landing." >&2; exit 20; }
+lid=; lsha=; lrt=; l1=; j1=
+latest_tier1() {   # sets lid lsha lrt l1 j1 (l1 empty: no run / no Tier 1 job yet / not finished)
+  local r jobs n c j err; lid=; lsha=; lrt=; l1=; j1=; err=$(mktemp)
+  r=$("$gh" run list --workflow "$wf" --branch "$base" --limit 20 --json databaseId,headSha,displayTitle,event \
+      --jq "[.[]|select($events)]|.[0]|select(.!=null)|[.databaseId,.headSha,.displayTitle]|join(\"\\u001f\")" 2>"$err") || {
+    if grep -q 'HTTP 404.*workflow .* not found' "$err"; then rm -f "$err"; echo "land-red: workflow $wf is not on $base yet: nothing can be red." >&2; return 0; fi
+    rm -f "$err"; cannot "gh run list failed"; }
+  rm -f "$err"; [ -n "$r" ] || return 0
+  IFS=$'\x1f' read -r lid lsha lrt <<<"$r"
+  jobs=$("$gh" run view "$lid" --json jobs --jq '.jobs[]|[.name,(.conclusion // ""),(.databaseId|tostring)]|join("\u001f")') || cannot "gh run view $lid failed"
+  while IFS=$'\x1f' read -r n c j; do if [ "$n" = "$t1job" ]; then l1=$c; j1=${j:-}; fi; done <<<"$jobs"
+  return 0
+}
+waited=0; latest_tier1
+while [ -z "$l1" ] && [ -n "$lid" ] && [ "$waited" -lt "$wait_s" ]; do
+  step=$poll_s; [ $((waited + step)) -le "$wait_s" ] || step=$((wait_s - waited)); [ "$step" -gt 0 ] || break
+  "$sleeper" "$step"; waited=$((waited + step)); latest_tier1
+done
+[ -z "$lid" ] || [ -n "$l1" ] || echo "land-red: the latest run of $base (${lsha:0:12}) has no finished $t1job job after ${waited}s: not a failure, proceeding." >&2
+case $l1 in
+  failure|timed_out)
+    if infra_failure "$lid" "$j1"; then echo "land-red: $base is red for an infrastructure reason (${lsha:0:12}: $lrt; run $lid): not blocking." >&2; exit 0; fi
+    echo "land-red: $base is red: the $t1job job of its latest run failed (${lsha:0:12}: $lrt)." >&2; exit 10;;
+esac
+exit 0

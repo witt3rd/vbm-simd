@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Installed by vbm-land: this stub and everything under scripts/land/ are a pinned copy of an upstream release. Do not edit them:
+# scripts/land/bin/land-check fails when they differ from scripts/land/PIN. Change the tool in its source repository, then update the pin.
+exec "$(cd "$(dirname "$0")" && pwd)/land/bin/land-direct" "$@"

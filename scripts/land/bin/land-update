@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# land-update <tag|commit> [--root DIR]: replace the vendored copy of this tool with the release named, from the source recorded in scripts/land/PIN.
+# It stages the new tree and PIN in the working tree and verifies them; it commits nothing. Commit the result as ONE commit (`chore(land): vbm-land <version>`)
+# and land it like any other change: the lander that lands it is the one already on main.
+set -euo pipefail
+export LC_ALL=C
+here=$(cd "$(dirname "$0")" && pwd); . "$here/../lib/source.sh"
+ref=; root=
+while [ $# -gt 0 ]; do case $1 in --root) root=${2:?--root needs a directory}; shift;; -*) echo "usage: land-update <tag|commit> [--root DIR]" >&2; exit 2;; *) ref=$1;; esac; shift; done
+[ -n "$ref" ] || { echo "usage: land-update <tag|commit> [--root DIR]" >&2; exit 2; }
+[ -n "$root" ] || root=$(git rev-parse --show-toplevel)
+src=$(sed -n 's/^source=//p' "$root/scripts/land/PIN" 2>/dev/null | sed -n 1p); [ -n "$src" ] || { echo "land-update: no scripts/land/PIN in $root: install first (install --source SRC <ref>)" >&2; exit 2; }
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/land-update.XXXXXX"); trap 'rm -rf "$tmp"' EXIT
+c=$(src_fetch "$src" "$ref" "$tmp/src") || exit 1
+git -C "$tmp/src" show "$c:install" > "$tmp/install"
+exec bash "$tmp/install" --source "$src" --target "$root" "$c"
