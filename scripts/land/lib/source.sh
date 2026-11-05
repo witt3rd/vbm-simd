@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # Where the upstream copy of this tool lives, and how to look at it at one exact commit. Sourced, never run.
-#   src_fetch SRC REF DEST   makes DEST a bare clone of SRC (OWNER/NAME on GitHub, via `gh`; or anything git can clone: a URL or a path) and prints the 40-hex commit REF names.
+#   src_fetch SRC REF DEST   makes DEST a bare clone of SRC (OWNER/NAME on GitHub: an ANONYMOUS https clone first, so a public source needs no token, no `gh` login and no secret; only when that fails, `gh`, for a private source;
+#   or anything git can clone: a URL or a path) and prints the 40-hex commit REF names. VBM_LAND_URL_BASE replaces https://github.com (the tests serve a local copy).
 src_fetch() {
   local src=$1 ref=$2 dest=$3 c
   if [[ "$src" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] && [ ! -e "$src" ]; then
-    "${GH:-gh}" repo clone "$src" "$dest" -- --quiet --bare >/dev/null 2>&1 || { echo "cannot clone $src with gh" >&2; return 1; }
+    GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=true timeout 120 git -c credential.helper= clone -q --bare -- "${VBM_LAND_URL_BASE:-https://github.com}/$src.git" "$dest" >/dev/null 2>&1 || { rm -rf "$dest"
+      "${GH:-gh}" repo clone "$src" "$dest" -- --quiet --bare >/dev/null 2>&1 || { echo "cannot clone $src (anonymously over https, nor with gh: a private source needs a read token in GH_TOKEN)" >&2; return 1; }; }
   else
     git clone -q --bare -- "$src" "$dest" >/dev/null 2>&1 || { echo "cannot clone $src" >&2; return 1; }
   fi
