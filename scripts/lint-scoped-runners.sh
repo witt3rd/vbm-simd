@@ -32,7 +32,7 @@ printf '%s\n' '[ -n "${RUN_SCOPED_INNER:-}" ] || RUN_SCOPED_INNER=1 exec scripts
 [ "${1:-}" != --selftest ] || echo "lint-scoped-runners: self-tests ok"
 bad=""
 for r in $selfs; do
-  f=$(git ls-files | grep -E "(^|/)$r\$" | head -1 || true)
+  f=$(git ls-files | grep -E "(^|/)$r\$" | sed -n 1p || true)
   [ -n "$f" ] || { echo "lint-scoped-runners: the self runner $r is not in the tree" >&2; exit 1; }
   guard_ok "$f" || bad="$bad$f: no RUN_SCOPED_INNER guard that re-execs it under scripts/run-scoped.sh"$'\n'
 done
