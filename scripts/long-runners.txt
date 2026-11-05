@@ -1,0 +1,5 @@
+# The declared long runners (scripts/lint-scoped-runners.sh). They run under scripts/run-scoped.sh NAME MAXSEC CMD... (a bounded transient scope reaped on exit), so an aborted run cannot orphan.
+# `NAME`       a caller must wrap it: any command that runs NAME outside run-scoped.sh fails the lint.
+# `self NAME`  the runner scopes itself: its file must carry the guard line `RUN_SCOPED_INNER=1 exec scripts/run-scoped.sh ...` (callers may then run it plainly).
+# One basename per entry; "#" starts a comment.
+self test-shims.sh

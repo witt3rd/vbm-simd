@@ -14,6 +14,10 @@ scripts/lint-proof-eval.sh --selftest
 scripts/ran-evidence.sh gate test_lint_workflows '^ran: test_lint_workflows: ([0-9]+) cases$' scripts/test_lint_workflows.sh
 scripts/ran-evidence.sh gate test_ran_evidence '^ran: test_ran_evidence: ([0-9]+) cases$' scripts/test_ran_evidence.sh
 python3 scripts/lint-workflows.py
+# Long runners (scripts/long-runners.txt) run under scripts/run-scoped.sh (a bounded transient scope, reaped on exit: an aborted run cannot orphan); the lint is negative-tested here (a guard against accidents: indirection is its stated limit).
+scripts/lint-scoped-runners.sh --selftest
+scripts/ran-evidence.sh gate test_run_scoped '^ran: test_run_scoped: ([0-9]+) cases$' scripts/test_run_scoped.sh
+scripts/ran-evidence.sh gate test_reap '^ran: test_reap: ([0-9]+) cases$' scripts/test_reap.sh
 
 # Lean sources under the roots that exist.
 lean_sources() { find VbmSimd VbmSimdProofs -name '*.lean'; ls VbmSimd.lean VbmSimdProofs.lean; }

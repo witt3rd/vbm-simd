@@ -5,12 +5,15 @@
 set -euo pipefail
 export LC_ALL=C
 cd "$(dirname "$0")/.."
+# Scoped (scripts/run-scoped.sh, scripts/long-runners.txt): re-exec under a bounded transient scope, so an aborted run cannot orphan its builds.
+[ -n "${RUN_SCOPED_INNER:-}" ] || RUN_SCOPED_INNER=1 exec scripts/run-scoped.sh test-shims 1800 "$PWD/scripts/test-shims.sh" "$@"
 ulimit -c 0   # a mutant may crash on purpose: no core file
 stale() { rm -f "$1"/.lake/build/ir/ShimTest.c.o.* "$1"/.lake/build/ir/VbmSimd/*.c.o.* "$1"/.lake/build/ir/VbmSimd.c.o.* "$1"/.lake/build/bin/shim-test 2>/dev/null || true; }
 stale .
 lake build shim-test >/dev/null
 .lake/build/bin/shim-test
-T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
+. scripts/lib-reap.sh   # an abort or exit stops the mutant jobs by the pids held here (each job is its own process group: set -m); never by pattern
+pids=(); T=$(mktemp -d); trap 'reap_pids "${pids[@]}"; rm -rf "$T"' EXIT; trap 'exit 143' INT TERM HUP
 # mutant NAME 'sed expression'
 mutants=(
   "ld64-offset|s|__builtin_memcpy(&w, p + i, 8)|__builtin_memcpy(\&w, p + i + 1, 8)|"
@@ -29,7 +32,7 @@ run_mutant() {
   ( cd "$d" && lake build shim-test >/dev/null 2>"$d/build.err" ) || { echo "test-shims: mutant $name does not build: $(tail -3 "$d/build.err")" >&2; return 2; }
   if ( cd "$d" && .lake/build/bin/shim-test >/dev/null 2>&1 ); then echo "test-shims: the test did NOT catch mutant $name" >&2; return 1; fi
 }
-pids=(); for m in "${mutants[@]}"; do run_mutant "$m" & pids+=($!); done
+for m in "${mutants[@]}"; do set -m; run_mutant "$m" & pids+=($!); set +m; done
 bad=0; for p in "${pids[@]}"; do wait "$p" || bad=1; done
 [ "$bad" = 0 ] || exit 1
 echo "test-shims: ok (${#mutants[@]} mutants of the header, each caught)"
