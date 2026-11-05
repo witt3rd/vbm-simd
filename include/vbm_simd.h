@@ -1,5 +1,5 @@
-/* include/vbm_simd.h: the trusted C of vbm-simd (docs/trust-ledger.md, T10). Four `static inline` primitives, each the C body of an `@[extern]` function of
- * VbmSimd/Shims.lean whose Lean body is its specification (the model). Include it first in every C file generated from Lean code that calls them
+/* include/vbm_simd.h: the trusted C of vbm-simd (docs/trust-ledger.md, T10 and T11). Four `static inline` primitives (T10), then the AVX2 byte search and its CPU test (T11), each the C body of an `@[extern]` function of
+ * VbmSimd/Shims.lean or VbmSimd/Find.lean whose Lean body is its specification (the model). Include it first in every C file generated from Lean code that calls them
  * (`cc -include include/vbm_simd.h`): Lean then emits only an `extern` prototype after it, which a later declaration of a static function does not conflict with.
  * Every function is total: an access past the end of the array is defined (reads zero, writes nothing there), exactly as the model says; none can touch memory outside the array.
  * Little-endian hosts only (checked below). tests/ShimTest.lean compares each against its model on boundary and random cases. */
@@ -59,5 +59,52 @@ static inline lean_obj_res vbm_simd_st32(lean_obj_arg out, size_t k, uint32_t w)
 
 /* ctz: the number of trailing zero bits of x; 64 for x = 0. */
 static inline uint64_t vbm_simd_ctz(uint64_t x) { return x ? (uint64_t)__builtin_ctzll(x) : 64; }
+
+/* ---- T11: find the first byte of a set (VS-11): the AVX2 search `vbm_simd_find_avx2` and the CPU test `vbm_simd_has_avx2`. The set `s` is up to four bytes packed in a word (byte k = member k).
+ * The result is the index of the first byte of `a` at or after `i` that is a member, `n` (the size) when there is none or `i >= n`: the Lean body `findSpec` is the model. Total: it never reads outside [0, n).
+ * Only x86-64 built with clang has the AVX2 body (vector extensions and clang builtins: the Lean toolchain ships no intrinsics header); elsewhere `has_avx2` is 0 and the function is the scalar loop. */
+static inline size_t vbm_simd_find_scalar(const uint8_t *p, size_t n, size_t i, uint32_t s) {
+  uint8_t b0 = (uint8_t)s, b1 = (uint8_t)(s >> 8), b2 = (uint8_t)(s >> 16), b3 = (uint8_t)(s >> 24);
+  for (; i < n; i++) if (p[i] == b0 || p[i] == b1 || p[i] == b2 || p[i] == b3) return i;
+  return n;
+}
+#if defined(__x86_64__) && defined(__clang__)
+typedef signed char vbm_v32 __attribute__((vector_size(32), aligned(1)));
+/* CPUID: AVX2 (leaf 7 ebx bit 5) with the OS saving the vector registers (OSXSAVE and AVX in leaf 1, XCR0 bits 1 and 2). Cached: the answer cannot change while the process runs. */
+static inline int vbm_simd_cpu_avx2(void) {
+  static int c = -1;
+  if (c >= 0) return c;
+  unsigned a, b, cx, d; c = 0;
+  __asm__ volatile("cpuid" : "=a"(a), "=b"(b), "=c"(cx), "=d"(d) : "0"(0), "2"(0));
+  if (a >= 7) {
+    __asm__ volatile("cpuid" : "=a"(a), "=b"(b), "=c"(cx), "=d"(d) : "0"(1), "2"(0));
+    if ((cx & (1u << 27)) && (cx & (1u << 28))) {
+      unsigned lo, hi; __asm__ volatile("xgetbv" : "=a"(lo), "=d"(hi) : "c"(0));
+      if ((lo & 6) == 6) { __asm__ volatile("cpuid" : "=a"(a), "=b"(b), "=c"(cx), "=d"(d) : "0"(7), "2"(0)); c = (b >> 5) & 1; }
+    }
+  }
+  return c;
+}
+/* The 32 bytes at p: bit t of the result is set iff byte t is a member. */
+__attribute__((target("avx2"))) static inline uint32_t vbm_simd_members32(const uint8_t *p, uint32_t s) {
+  vbm_v32 x, z = {0};
+  __builtin_memcpy(&x, p, 32);
+  vbm_v32 e = (x == z + (signed char)s) | (x == z + (signed char)(s >> 8)) | (x == z + (signed char)(s >> 16)) | (x == z + (signed char)(s >> 24));
+  return (uint32_t)__builtin_ia32_pmovmskb256(e);
+}
+__attribute__((target("avx2"))) static inline size_t vbm_simd_find_avx2_n(const uint8_t *p, size_t n, size_t i, uint32_t s) {
+  if (i >= n) return n;
+  while (n - i >= 32) { uint32_t m = vbm_simd_members32(p + i, s); if (m) return i + (size_t)__builtin_ctz(m); i += 32; }
+  if (n < 32) return vbm_simd_find_scalar(p, n, i, s);
+  /* 0 < n - i < 32: the last 32 bytes of the array (all inside it); the bits of the bytes before i are shifted out */
+  uint32_t m = vbm_simd_members32(p + n - 32, s) >> (32 - (n - i));
+  return m ? i + (size_t)__builtin_ctz(m) : n;
+}
+static inline uint8_t vbm_simd_has_avx2(lean_obj_arg u) { (void)u; return (uint8_t)vbm_simd_cpu_avx2(); }
+static inline size_t vbm_simd_find_avx2(b_lean_obj_arg a, uint32_t s, size_t i) { return vbm_simd_find_avx2_n(lean_sarray_cptr(a), lean_sarray_size(a), i, s); }
+#else
+static inline uint8_t vbm_simd_has_avx2(lean_obj_arg u) { (void)u; return 0; }
+static inline size_t vbm_simd_find_avx2(b_lean_obj_arg a, uint32_t s, size_t i) { return vbm_simd_find_scalar(lean_sarray_cptr(a), lean_sarray_size(a), i, s); }
+#endif
 
 #endif

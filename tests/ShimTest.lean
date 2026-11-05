@@ -1,5 +1,6 @@
 import VbmSimd.Shims
 import VbmSimd.Cursor
+import VbmSimd.Find
 /-! # tests/ShimTest.lean: the trusted C shims against their Lean models (Tier 1: `scripts/test-shims.sh`)
 
 Each primitive of `include/vbm_simd.h` (linked in through `lake build shim-test`, which compiles the generated C with `-include include/vbm_simd.h`) is called next to its Lean model on: every array size 0 to 41 with
@@ -41,6 +42,59 @@ def naive (masks : ByteArray) : Array Nat := Id.run do
   for p in [0:8 * masks.size] do
     if (masks.get! (p / 8) >>> (p % 8).toUInt8) &&& 1 == 1 then r := r.push p
   return r
+
+/-- The sets the search is tried with: LF and CR (a repeated slot), one member, four distinct members including the zero byte and the high bytes, four ASCII delimiters. -/
+def findSets : List UInt32 := [0x0D0D0D0A, 0x78787878, 0xFF807F00, 0x5C220A2C]
+
+/-- The CPU test against the kernel's own report (Linux: the `avx2` flag of `/proc/cpuinfo`; where it cannot be read the comparison is skipped). -/
+def cpuinfoAvx2 : IO (Option Bool) := do
+  try
+    let t ← IO.FS.readFile "/proc/cpuinfo"
+    let flags := (t.splitOn "\n").filter (·.startsWith "flags")
+    if flags.isEmpty then return none
+    return some (flags.all fun l => (l.splitOn " ").contains "avx2")
+  catch _ => return none
+
+/-- One array, one set, every start: the compiled kernels (AVX2 when the CPU has it, the portable word search, the dispatch) against the machine `findSpec`. -/
+def checkFind (st : St) (a : ByteArray) (s : UInt32) (tag : String) : IO St := do
+  let mut st := st
+  let avx := hasAvx2 ()
+  for i in (List.range (a.size + 3)).map (·.toUSize) ++ [0xFFFFFFFF, 0x8000000000000000, 0xFFFFFFFFFFFFFFFF] do
+    let spec := findSpec a s i.toNat
+    st ← check st "findSwar" (findSwar a s i.toNat == spec) s!"{tag} size {a.size} set {s} i {i}"
+    st ← check st "findFirstOf" (findFirstOf a s i.toNat == spec) s!"{tag} size {a.size} set {s} i {i}"
+    if avx then st ← check st "findAvx2" (findAvx2 a s i == spec.toUSize) s!"{tag} size {a.size} set {s} i {i}"
+  return st
+
+/-- Filler: a byte that is in none of the sets above. -/
+def fillerByte (x : UInt64) : UInt8 := let b := (x >>> 24).toUInt8; if findSets.any (inSet · b) then 0x41 + (b &&& 7) else b
+
+def member (s : UInt32) (k : Nat) : UInt8 := match k % 4 with | 0 => s.toUInt8 | 1 => (s >>> 8).toUInt8 | 2 => (s >>> 16).toUInt8 | _ => (s >>> 24).toUInt8
+
+/-- The search tests: the CPU test; for sizes around every step boundary (0 to 70 bytes, 95 to 97, 127 to 129, 255 to 257, 1000) a member planted at every position of a filler array (and none),
+a member in every byte, and random arrays dense with members; every start (including past the end and the largest words). -/
+def findRun (st : St) : IO St := do
+  let mut st := st
+  match ← cpuinfoAvx2 with
+  | some flag => st ← check st "has_avx2 against cpuinfo" (hasAvx2 () == flag) s!"cpuinfo says {flag}"
+  | none => pure ()
+  let sizes := (List.range 71) ++ [95, 96, 97, 127, 128, 129, 255, 256, 257, 1000]
+  for n in sizes do
+    for s in findSets do
+      let mut filler := ByteArray.empty
+      for _ in [0:n] do
+        st := { st with s := next st.s }
+        filler := filler.push (fillerByte st.s)
+      st ← checkFind st filler s "no member"
+      for k in [0:n] do st ← checkFind st (filler.set! k (member s k)) s s!"plant {k}"
+      st ← checkFind st (ByteArray.mk (Array.replicate n s.toUInt8)) s "all members"
+      for _ in [0:3] do
+        let mut dense := ByteArray.empty
+        for _ in [0:n] do
+          st := { st with s := next st.s }
+          dense := dense.push (if (st.s >>> 40) % 16 == 0 then member s (st.s >>> 50).toNat else fillerByte st.s)
+        st ← checkFind st dense s "dense"
+  return st
 
 def run : IO UInt32 := do
   let mut st : St := { s := 0x9E3779B97F4A7C15 }
@@ -107,6 +161,7 @@ def run : IO UInt32 := do
       for j in [0:endPos + 1] do
         let expect := (nv.find? (· ≥ j)).getD endPos
         st ← check st "nextSet" (VbmSimd.nextSet b j == expect) s!"size {n} density {density} j {j}"
+  st ← findRun st
   if st.bad == 0 then
     IO.println s!"shim-test: ok ({st.count} comparisons of the C shims against their Lean models)"
     return 0

@@ -137,4 +137,37 @@ theorem findSwar_spec (a : ByteArray) (s : UInt32) (i : Nat) : findSwar a s i = 
       rw [findSpec_end a s i (by omega)]
   · simp only [hn, ↓reduceDIte]
 
+/-- The result of the machine is at most the size when the start is below it. -/
+theorem findSpec_le (a : ByteArray) (s : UInt32) : ∀ f i, a.size - i ≤ f → findSpec a s i ≤ a.size := by
+  intro f
+  induction f with
+  | zero => intro i h; rw [findSpec_end a s i (by omega)]; exact Nat.le_refl _
+  | succ f ih =>
+    intro i h
+    by_cases hi : i < a.size
+    · by_cases hs : inSet s (byteAt0 a i) = true
+      · rw [findSpec_hit a s i hi hs]; omega
+      · rw [findSpec_miss a s i hi (by simpa using hs)]; exact ih (i + 1) (by omega)
+    · rw [findSpec_end a s i (by omega)]; exact Nat.le_refl _
+
+/-- `[VS-11]` the AVX2 path (by its model) is the machine. -/
+theorem findAvx_spec (a : ByteArray) (s : UInt32) (i : Nat) : findAvx a s i = findSpec a s i := by
+  unfold findAvx
+  by_cases h : i < a.size ∧ a.usize.toNat = a.size
+  · simp only [h, and_self, ↓reduceIte]
+    have hN := USize.toNat_lt_size a.usize
+    have hi : i.toUSize.toNat = i := by rw [USize.toNat_ofNat', ← show USize.size = 2 ^ System.Platform.numBits from rfl]; exact Nat.mod_eq_of_lt (by omega)
+    have hle := findSpec_le a s _ i (Nat.le_refl _)
+    show (USize.ofNat (findSpec a s i.toUSize.toNat)).toNat = _
+    rw [hi, USize.toNat_ofNat', ← show USize.size = 2 ^ System.Platform.numBits from rfl]
+    exact Nat.mod_eq_of_lt (by omega)
+  · simp only [h, ↓reduceIte]
+
+/-- `[VS-11]` the search a consumer calls is the machine, whatever the CPU test says. -/
+theorem findFirstOf_spec (a : ByteArray) (s : UInt32) (i : Nat) : findFirstOf a s i = findSpec a s i := by
+  unfold findFirstOf
+  split
+  · exact findAvx_spec a s i
+  · exact findSwar_spec a s i
+
 end VbmSimdProofs

@@ -40,4 +40,24 @@ def findSwar (a : ByteArray) (s : UInt32) (i : Nat) : Nat :=
     (if i < a.size then (findSwarGo a n (rep8 s.toUInt8) (rep8 (s >>> 8).toUInt8) (rep8 (s >>> 16).toUInt8) (rep8 (s >>> 24).toUInt8) i.toUSize).toNat else a.size)
   else findSpec a s i
 
+/-! ## The AVX2 search, and the choice between it and `findSwar`
+
+`vbm_simd_find_avx2` (`include/vbm_simd.h`, trust ledger T11) is the C body of `findAvx2`, whose Lean body `findSpec` is its model; it is tested against that model and against `findSwar`
+(`tests/ShimTest.lean`). `hasAvx2 ()` asks the CPU once (cpuid, and that the OS saves the vector state). `findFirstOf` takes the shim when it is there and the proved `findSwar` otherwise;
+`findFirstOf_spec` holds for either answer of the CPU test, so the proof does not depend on which one a machine gives. -/
+
+/-- Does this CPU (and OS) run AVX2? The model says `false`; `findFirstOf_spec` is true for either value. -/
+@[extern "vbm_simd_has_avx2"] def hasAvx2 (_ : Unit) : Bool := false
+
+/-- The AVX2 search, 32 bytes per step, never reading outside the array (model: `findSpec`; the index is a word and the result is `a.size` when there is no match or `i` is past the end). -/
+@[extern "vbm_simd_find_avx2"] def findAvx2 (a : @& ByteArray) (s : UInt32) (i : USize) : USize := (findSpec a s i.toNat).toUSize
+
+/-- `findAvx2` for a start that is a `Nat` (the machine itself when the size or the start does not fit a word). -/
+def findAvx (a : ByteArray) (s : UInt32) (i : Nat) : Nat :=
+  if i < a.size ∧ a.usize.toNat = a.size then (findAvx2 a s i.toUSize).toNat else findSpec a s i
+
+/-- `[VS-11]` The first byte at or after `i` that is a member of `s` (`a.size` when there is none): the AVX2 search on a CPU that has it, the proved portable search otherwise. -/
+def findFirstOf (a : ByteArray) (s : UInt32) (i : Nat) : Nat :=
+  if hasAvx2 () then findAvx a s i else findSwar a s i
+
 end VbmSimd
