@@ -50,4 +50,12 @@ termination_by n - w
 def curStream (ws : Nat → UInt64) (n : Nat) (w : Nat) (m : UInt64) : List Nat :=
   (bitsOf m).map (64 * w + ·) ++ streamFrom ws n (w + 1)
 
+/-- A set of at most four bytes, packed in a word: byte `k` of `s` (bits `8k .. 8k+7`) is member `k`; repeat a byte to fill a slot that is not needed. -/
+def inSet (s : UInt32) (b : UInt8) : Bool := b == s.toUInt8 || b == (s >>> 8).toUInt8 || b == (s >>> 16).toUInt8 || b == (s >>> 24).toUInt8
+
+/-- `[VS-11]` the find machine: the index of the first byte of `a` at or after `i` that is in the set `s`; `a.size` when there is none (and when `i` is not below the end). One byte per step. -/
+def findSpec (a : ByteArray) (s : UInt32) (i : Nat) : Nat :=
+  if h : i < a.size then (if inSet s a[i] then i else findSpec a s (i + 1)) else a.size
+termination_by a.size - i
+
 end VbmSimd
