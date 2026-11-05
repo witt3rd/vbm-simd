@@ -34,7 +34,7 @@ a carry chain is a sequential machine in disguise, so the proof is an induction 
 
 ## The ethos: verified bare metal (VBM)
 
-VBM is a standard for libraries that are small, proved, and run on nothing; see [awesome-vbm](https://github.com/witt3rd/awesome-vbm). Here: the library imports only Lean's `Init`; nothing is allocated by the kernels; the proofs are about the code that runs; every hand-written line is in [`docs/trust-ledger.md`](docs/trust-ledger.md);
+VBM is a standard for libraries that are small, proved, and run on nothing; see [vbm](https://github.com/witt3rd/vbm). Here: the library imports only Lean's `Init`; nothing is allocated by the kernels; the proofs are about the code that runs; every hand-written line is in [`docs/trust-ledger.md`](docs/trust-ledger.md);
 and coding agents wrote it under mechanical gates (forbidden constructs, the axiom gate, the spec-clause gate, the trust-ledger gate, each with a negative self-test showing it can fail) instead of line-by-line human review.
 
 ## Build and test
