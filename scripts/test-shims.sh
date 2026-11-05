@@ -10,7 +10,7 @@ cd "$(dirname "$0")/.."
 ulimit -c 0   # a mutant may crash on purpose: no core file
 stale() { rm -f "$1"/.lake/build/ir/ShimTest.c.o.* "$1"/.lake/build/ir/VbmSimd/*.c.o.* "$1"/.lake/build/ir/VbmSimd.c.o.* "$1"/.lake/build/bin/shim-test 2>/dev/null || true; }
 stale .
-lake build shim-test >/dev/null
+lake build shim-test
 .lake/build/bin/shim-test
 . scripts/lib-reap.sh   # an abort or exit stops the mutant jobs by the pids held here (each job is its own process group: set -m); never by pattern
 pids=(); T=$(mktemp -d); trap 'reap_pids "${pids[@]}"; rm -rf "$T"' EXIT; trap 'exit 143' INT TERM HUP
