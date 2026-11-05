@@ -9,7 +9,7 @@ compiles to C, to WASM and into its own artifact, so nothing from `Std` or `Lean
 @[default_target]
 lean_lib VbmSimd where
   globs := #[.andSubmodules `VbmSimd]
-  moreLeancArgs := #["-include", "include/vbm_simd.h"]
+  moreLeancArgs := #["-include", (__dir__ / "include" / "vbm_simd.h").toString]
 
 /-- The proofs: may import `Std` and `Lean`; NEVER linked (nothing in `VbmSimd` may import it). -/
 lean_lib VbmSimdProofs where
@@ -19,4 +19,4 @@ lean_lib VbmSimdProofs where
 lean_exe «shim-test» where
   srcDir := "tests"
   root := `ShimTest
-  moreLeancArgs := #["-include", "include/vbm_simd.h"]
+  moreLeancArgs := #["-include", (__dir__ / "include" / "vbm_simd.h").toString]

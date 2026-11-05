@@ -48,6 +48,19 @@ mise exec -- scripts/tier1.sh    # the whole gate: lints, build, axiom gate, spe
 mise exec -- scripts/tier2.sh    # the slow checks: leanchecker --fresh and the independent checker nanoda
 ```
 
+## Using it from another Lake project
+
+Pin a commit (not a branch) and compile your generated C with the shim header first:
+
+```lean
+require «vbm-simd» from git "https://github.com/witt3rd/vbm-simd" @ "<commit>"
+
+lean_lib MyLib where
+  moreLeancArgs := #["-include", (__dir__ / ".lake" / "packages" / "vbm-simd" / "include" / "vbm_simd.h").toString]
+```
+
+Your library may import `VbmSimd.*` (it brings `Init` only); a freestanding build must also provide `lean_copy_sarray` (the stores copy a shared array). The proofs are `VbmSimdProofs.*` (a separate library: build it with `lake build @vbm-simd/VbmSimdProofs` when your proofs import it).
+
 ## Contributing
 
 The repository lands changes directly to `main` through a gate and does not take pull requests from outside; see [`AGENTS.md`](AGENTS.md) for the rules the agents work under. Issues are welcome.
