@@ -2,7 +2,7 @@
 
 Bit-parallel kernels for scanning text, **proved correct in Lean 4** against one-bit-at-a-time machines, and the very small amount of trusted C needed to run them at hardware speed.
 
-> **Status: pre-release (early).** Five kernels are proved (prefix xor, escape carry, byte-lane compare, lane-flag packing, a cursor over the set bits of a mask array); four trusted C primitives are modelled and tested. Nothing is published to any package registry; build from source. The API will change.
+> **Status: pre-release (early).** Six kernels are proved (prefix xor, escape carry, byte-lane compare, lane-flag packing, a 64-byte block mask, a cursor over the set bits of a mask array); four trusted C primitives are modelled and tested. Nothing is published to any package registry; build from source. The API will change.
 
 ## Why it exists
 
@@ -23,6 +23,7 @@ Lean models and differential tests, each with its own entry in a ledger. It is t
 | `VS-3` | byte `k` of `w` equals byte `k` of `c` | `eqLanes` (SWAR compare of eight bytes at once) | `eqLanes_spec`, `eqLanes_low` |
 | `VS-4` | the flag of lane `k` of a mask | `pack8` (eight lane flags to the low eight bits, one multiply) | `pack8_spec`, `pack8_high` |
 | `VS-7` | the set positions of a mask array, in order | `cursorStart`, `cursorNext` (`ctz` and `x & (x - 1)`; no index array) | `cursorStart_spec`, `cursorNext_spec` |
+| `VS-8` | bit `p` of a block mask comes from word `p / 8` | `mask8`, `eqMask64` (the mask of the bytes of a 64-byte block equal to a byte) | `mask8_bit`, `eqMask64_spec` |
 
 **The trusted C** is one header, [`include/vbm_simd.h`](include/vbm_simd.h): `ld64`, `st64`, `st32`, `ctz`, each a few lines, each with a Lean model (`VbmSimd/Shims.lean`) that is its specification, tested against the model on boundary and random cases and against deliberate mutants of the header (`scripts/test-shims.sh`). They are total: no call touches memory outside its array.
 

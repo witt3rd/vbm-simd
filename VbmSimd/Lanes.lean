@@ -23,4 +23,16 @@ namespace VbmSimd
 (`pack8_spec`, `[VS-4]`). The multiply puts bit `8k` at bit `56 + k`; no two partial products meet, so no carry. -/
 @[inline] def pack8 (m : UInt64) : UInt64 := ((m >>> 7) * 0x0102040810204080) >>> 56
 
+/-- Word `k` of a block given as eight words (`w7` for any `k ≥ 7`): the way the specs of the block masks name the eight words. -/
+def blockWord (w0 w1 w2 w3 w4 w5 w6 w7 : UInt64) (k : Nat) : UInt64 :=
+  match k with | 0 => w0 | 1 => w1 | 2 => w2 | 3 => w3 | 4 => w4 | 5 => w5 | 6 => w6 | _ => w7
+
+/-- The mask of a 64-byte block (eight words) from a per-word function `f` that puts the eight bits of one word in its low byte: word `k` supplies bits `8k .. 8k+7` (`mask8_bit`, `[VS-8]`). -/
+@[inline] def mask8 (f : UInt64 → UInt64) (w0 w1 w2 w3 w4 w5 w6 w7 : UInt64) : UInt64 :=
+  f w0 ||| (f w1 <<< 8) ||| (f w2 <<< 16) ||| (f w3 <<< 24) ||| (f w4 <<< 32) ||| (f w5 <<< 40) ||| (f w6 <<< 48) ||| (f w7 <<< 56)
+
+/-- The mask of the bytes of a 64-byte block (eight words) equal to the byte `c` repeated in all lanes of `c` (a literal such as `0x2222222222222222`): bit `p` is set iff byte `p` of the block is that byte
+(`eqMask64_spec`, `[VS-8]`). -/
+@[inline] def eqMask64 (c w0 w1 w2 w3 w4 w5 w6 w7 : UInt64) : UInt64 := mask8 (fun w => pack8 (eqLanes c w)) w0 w1 w2 w3 w4 w5 w6 w7
+
 end VbmSimd

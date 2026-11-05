@@ -13,6 +13,7 @@ definition or no theorem, or a tag is not a clause. Bit `i` is counted from the 
 | VS-5 | the models `ld64Model`, `st64Model`, `st32Model` (`VbmSimd/Shims.lean`): a load reads bytes `i .. i+7` little-endian, zero past the end; a store writes little-endian and nothing past the end | the C shims `vbm_simd_ld64`, `vbm_simd_st64`, `vbm_simd_st32` (trusted; tested against the models) | `ld64Model_bit` (`VbmSimdProofs/Shims.lean`); the shims: `scripts/test-shims.sh` |
 | VS-6 | `ctzModel x`: the position of the lowest set bit, 64 for zero | the C shim `vbm_simd_ctz` (trusted; tested against the model) | `ctzModel_spec`, `ctzModel_zero` (`VbmSimdProofs/Shims.lean`); the shim: `scripts/test-shims.sh` |
 | VS-7 | `curStream ws n w m`: the set positions of `m`, then of every later word, increasing | `cursorStart`, `cursorNext`, `seek`, `curPos`, `clearLowest` (walk the set bits of a mask array in order with `ctz` and `x & (x - 1)`, no index array) | `cursorStart_spec`, `cursorNext_spec` (`VbmSimdProofs/Cursor.lean`) |
+| VS-8 | `bit p` of a block mask is `f` applied to word `p / 8`, bit `p % 8` | `mask8` (eight per-word results into one 64-bit block mask), `eqMask64` (the mask of the bytes of a 64-byte block equal to a given byte) | `mask8_bit`, `eqMask64_spec` (`VbmSimdProofs/Mask.lean`) |
 
 Planned clauses (not in the tree yet; each lands with its proof): the UTF-8 validation automaton, the chunking theorem that threads a carry
 state through consecutive blocks.
