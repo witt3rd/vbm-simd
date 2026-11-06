@@ -24,7 +24,7 @@ UTF-8 validation, then the vector-ISA shims (each its own ledger entry). Toolcha
 - Commit locally with Conventional Commits. Land only with `scripts/land-direct`; never push main yourself, never force-push it, never open a PR.
 - Main is RED when the Tier 1 job of its latest push failed. While red or frozen, only a fix or revert lands. Never hotfix on main: pull the revert, reproduce in a new worktree, resubmit.
 - `scripts/land/` and `scripts/land-direct` are a pinned copy of vbm-land: never edit them (`scripts/land/bin/land-check` fails the gate). Change the tool upstream, then `scripts/land/bin/land-update <tag>`.
-- Gate-defining files (`scripts/`, `lakefile.lean`, the pins, the workflows, `docs/SPEC.md`, `docs/trust-ledger.md`, this file) wait for the owner: do not edit one to make a check pass. (A mechanical judge for them, as in vbm-json, is not built here yet.)
+- Anything in the repository may be edited and landed like any change (spec, proofs, code, scripts, docs, this file); only the lander files and the signing keys are off limits. Do not weaken a check to make it pass.
 - Decide anything reversible and log it. Escalate only money, data loss, secrets, publishing, or harm to a third party; say so in one line and stop.
 
 ## Layout

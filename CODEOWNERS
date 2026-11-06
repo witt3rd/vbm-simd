@@ -1,4 +1,4 @@
-# The owner approves the specification, the trusted C, the gates, the pins, the workflows and the governance files.
+# Code owners (for notification). Nothing waits for an owner: an agent may edit the specification, the code, the scripts, the docs and AGENTS.md and land them like any change; only the lander files and the signing keys are off limits.
 /VbmSimd/                  @witt3rd
 /VbmSimd.lean              @witt3rd
 /include/                  @witt3rd
