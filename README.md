@@ -44,7 +44,7 @@ and coding agents wrote it under mechanical gates (forbidden constructs, the axi
 ```sh
 mise install                     # the pinned Lean release (mise.toml), no elan
 mise exec -- lake build          # the library and the proofs, zero warnings
-mise exec -- scripts/tier1.sh    # the whole check: build, shim tests, axiom gate, spec clauses, trust ledger (under a minute)
+mise exec -- scripts/tier1.sh    # the whole check: build, shim tests, axiom gate, spec clauses, trust ledger
 mise exec -- scripts/tier2.sh    # the slow checks: leanchecker --fresh and the independent checker nanoda
 ```
 

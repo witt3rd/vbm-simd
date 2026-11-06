@@ -11,7 +11,7 @@ Thank you for looking. A short, honest note about how this repository works.
 ## Pull requests and CI
 
 - CI here runs only on a push to `main`, on a schedule and on manual dispatch, on GitHub-hosted runners with a read-only token and no secrets. It does not run on pull requests. Workflows run on GitHub-hosted runners only.
-- Run the checks yourself: `mise install` then `mise exec -- scripts/tier1.sh` (the zero-warning build, the shim tests, the axiom gate, the spec-clause gate, the trust-ledger gate; under a minute). It is the same gate the lander runs. It needs `mise`, `git`, `bash`, `python3` and `curl`/`ca-certificates` (the Lean release brings its own C compiler). `scripts/tier2.sh` adds the independent proof checkers.
+- Run the checks yourself: `mise install` then `mise exec -- scripts/tier1.sh` (the zero-warning build, the shim tests, the axiom gate, the spec-clause gate, the trust-ledger gate). It is the same gate the lander runs. It needs `mise`, `git`, `bash`, `python3` and `curl`/`ca-certificates` (the Lean release brings its own C compiler). `scripts/tier2.sh` adds the independent proof checkers.
 
 ## What a good change looks like
 
