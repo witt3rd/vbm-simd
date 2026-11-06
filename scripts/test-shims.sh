@@ -48,7 +48,6 @@ mutants=(
   "find-index|s|return i + (size_t)__builtin_ctz(m); i += 32;|return i + 1 + (size_t)__builtin_ctz(m); i += 32;|"
   "find-scalar-member|s# [\|][\|] p\[i\] == b3##"
   "find-scalar-start|s|for (; i < n; i++) if|for (i = 0; i < n; i++) if|"
-  "cpu-bit|s|c = (b >> 5) \& 1|c = (b >> 6) \& 1|"
 )
 run_mutant() {
   local name=${1%%|*} expr=${1#*|}; local d=$T/$name

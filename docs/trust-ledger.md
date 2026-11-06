@@ -80,9 +80,9 @@ Entry format: **What** it is; **Enters** where it enters; **Assumes** what we as
 
 ### T07. git, gh, python3: the process tooling
 - **What:** `git` and `gh` (the rebase and push steps of the lander), `python3` (the trust-ledger and workflow checkers). They run on the developer's machine and in CI; none is part of any artifact.
-- **Enters:** `scripts/land-direct` and the vendored `scripts/land/`, `scripts/trust_ledger.py`, `scripts/lint-workflows.py`, the Tier 1 scripts.
+- **Enters:** `scripts/land-direct` and the vendored `scripts/land/`, `scripts/trust_ledger.py`, the Tier 1 scripts.
 - **Assumes:** they do what their manuals say; the self-tests of the scripts that use them are the check that our use is right; no written contract.
-- **Test:** scripts/test_lint_workflows.sh and scripts/spec-check.sh (each runs its checker on planted failures); the lander's own suite lives in its source repository.
+- **Test:** scripts/spec-check.sh; the lander's own suite lives in its source repository.
 - **Owner:** upstream tools; the repository owner approves the scripts (CODEOWNERS).
 - **Plan:** accept, because they touch the process and not the artifact: a compromised tool could land a bad change, which the gates and the owner's review are there to catch.
 - **Covers:** `tool:git` `tool:gh` `tool:python3`
@@ -91,7 +91,7 @@ Entry format: **What** it is; **Enters** where it enters; **Assumes** what we as
 - **What:** `ci.yml` runs `scripts/tier1.sh` on every push to `main` and `scripts/tier2.sh` every six hours and on manual dispatch, on GitHub-hosted `ubuntu-latest` runners only (`scripts/lint-workflows.py` fails Tier 1 on a self-hosted label, on a `pull_request_target` trigger and on any secret other than the default token). No pull-request trigger, so a fork's code never runs with the repository's token. Three third-party actions, pinned by commit sha: `actions/checkout` v4, `actions/cache` v4, `jdx/mise-action` v2. Token: the default `GITHUB_TOKEN`, `contents: read`; no secrets.
 - **Enters:** `.github/workflows/ci.yml`; every CI run. It runs only on GitHub: it cannot be run locally.
 - **Assumes:** the runner image, the pinned action commits and the cache behave as documented; a poisoned cache or a compromised upstream action could change what is checked. There is no written contract beyond GitHub's documentation.
-- **Test:** none that can fail inside this repository (the workflow cannot run locally); scripts/test_lint_workflows.sh checks its structure and the public-repository rules.
+- **Test:** none that can fail inside this repository (the workflow cannot run locally); none.
 - **Owner:** the repository owner (CODEOWNERS); the actions are upstream.
 - **Plan:** sandbox. Keep the permissions read-only and secret-free; the actions are pinned to commit shas; the cache never replaces the gates.
 - **Covers:** `file:.github/workflows/ci.yml`
