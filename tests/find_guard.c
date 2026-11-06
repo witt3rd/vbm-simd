@@ -1,4 +1,4 @@
-/* tests/find_guard.c: the byte search of include/vbm_simd.h (trust ledger T11) against a naive loop, on buffers that touch an unmapped page, so that ANY read outside [0, n) is a SIGSEGV and fails
+/* tests/find_guard.c: the byte search of include/vbm_simd.h (trust ledger T11) and the membership masks (T12) against a naive loop, on buffers that touch an unmapped page, so that ANY read outside [0, n) is a SIGSEGV and fails
  * the test (an over-read of one byte included: the page before and the page after the buffer are PROT_NONE). Every size 0 to 160, the buffer placed flush against the end of its page and flush
  * against the start of its page (n = 0 puts the pointer on the guard itself), four sets, a member planted at every position and none, every start from 0 to n + 1. The scalar loop is checked
  * on the same cases (it is the whole search on a CPU without AVX2 and the tail of the AVX2 one for short arrays); the AVX2 search only when this CPU has it. Built and run by scripts/test-shims.sh. */
@@ -15,6 +15,13 @@ extern int dprintf(int, const char *, ...);
 static size_t naive(const uint8_t *p, size_t n, size_t i, uint32_t s) {
   for (; i < n; i++) { uint8_t b = p[i]; if (b == (uint8_t)s || b == (uint8_t)(s >> 8) || b == (uint8_t)(s >> 16) || b == (uint8_t)(s >> 24)) return i; }
   return n;
+}
+
+/* bit j of the result: byte i + j exists (below n) and is a member of s */
+static uint64_t naive_mask(const uint8_t *p, size_t n, size_t i, uint32_t s) {
+  uint64_t m = 0;
+  for (size_t j = 0; j < 64 && i + j < n; j++) { uint8_t b = p[i + j]; if (b == (uint8_t)s || b == (uint8_t)(s >> 8) || b == (uint8_t)(s >> 16) || b == (uint8_t)(s >> 24)) m |= (uint64_t)1 << j; }
+  return m;
 }
 
 int main(void) {
@@ -42,6 +49,11 @@ int main(void) {
             if (vbm_simd_find_scalar(p, n, i, s) != want) { bad++; dprintf(2, "find-guard: scalar n=%zu i=%zu set=%08x plant=%ld flush=%d\n", n, i, s, plant, flush); }
 #if defined(__x86_64__) && defined(__clang__)
             if (avx && vbm_simd_find_avx2_n(p, n, i, s) != want) { bad++; dprintf(2, "find-guard: avx2 n=%zu i=%zu set=%08x plant=%ld flush=%d\n", n, i, s, plant, flush); }
+#endif
+            uint64_t wm = naive_mask(p, n, i, s);
+            if (vbm_simd_inset64_scalar(p, n, i, s) != wm) { bad++; dprintf(2, "find-guard: inset scalar n=%zu i=%zu set=%08x plant=%ld flush=%d\n", n, i, s, plant, flush); }
+#if defined(__x86_64__) && defined(__clang__)
+            if (avx && vbm_simd_inset64_avx2_n(p, n, i, s) != wm) { bad++; dprintf(2, "find-guard: inset avx2 n=%zu i=%zu set=%08x plant=%ld flush=%d\n", n, i, s, plant, flush); }
 #endif
             count++;
           }

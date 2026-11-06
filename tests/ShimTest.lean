@@ -1,6 +1,7 @@
 import VbmSimd.Shims
 import VbmSimd.Cursor
 import VbmSimd.Find
+import VbmSimd.Inset
 /-! # tests/ShimTest.lean: the trusted C shims against their Lean models (Tier 1: `scripts/test-shims.sh`)
 
 Each primitive of `include/vbm_simd.h` (linked in through `lake build shim-test`, which compiles the generated C with `-include include/vbm_simd.h`) is called next to its Lean model on: every array size 0 to 41 with
@@ -20,6 +21,7 @@ structure St where
   bad : Nat := 0
   count : Nat := 0
   avx : Nat := 0   -- how many of the comparisons were of the AVX2 search
+  ins : Nat := 0   -- how many were of the AVX2 membership masks
 
 /-- The bytes of `a` now. An IO action, so the compiler can neither merge two snapshots of the same array nor move a snapshot across a store (`a.data` twice would be one value). -/
 @[noinline] def snap (a : ByteArray) : BaseIO (Array UInt8) := pure a.data
@@ -99,6 +101,58 @@ def findRun (st : St) : IO St := do
         st ← checkFind st dense s "dense"
   return st
 
+/-- The sets the membership masks are tried with: one member (quote, backslash), four distinct (the JSON operators `, : { }`, white space), a repeated slot, the zero byte (the zero that pads past the end must not flag), high bytes. -/
+def insetSets : List UInt32 := [0x22222222, 0x5C5C5C5C, 0x7D7B3A2C, 0x5D5B5D5B, 0x0D0A0920, 0x00000000, 0xFF807F00, 0x0D0D0D0A, 0x41424344]
+
+/-- One array, one set, every start: the AVX2 masks against the machine (only on a CPU that has AVX2: the function is the AVX2 body there). -/
+def checkInset (st : St) (a : ByteArray) (s : UInt32) (tag : String) : IO St := do
+  let mut st := st
+  for i in (List.range (a.size + 3)).map (·.toUSize) ++ [0xFFFFFFFF, 0x8000000000000000, 0xFFFFFFFFFFFFFFFF] do
+    st ← check st "inset64" (inset64 a i s == insetSpec a i.toNat s) s!"{tag} size {a.size} set {s} i {i}"
+    st := { st with ins := st.ins + 1 }
+  return st
+
+/-- A byte in none of the insetSets (so a filler cannot flag). -/
+def insetFiller (x : UInt64) : UInt8 := let b := (x >>> 24).toUInt8; if insetSets.any (inSet · b) then 0x61 + (b &&& 7) else b
+
+/-- The membership-mask tests (only where the CPU has AVX2, the only place the function is called from): every set; sizes 0 to 140 and the block boundaries; a member planted at each position of a filler array; every byte value
+at positions around the lane boundaries (0, 1, 15, 16, 17, 31, 32, 33, 62, 63, 64, 65, size minus one) with starts through the block; every byte a member; random dense arrays. -/
+def insetRun (st : St) : IO St := do
+  let mut st := st
+  unless hasAvx2 () do return st
+  let sizes := (List.range 141) ++ [191, 192, 193, 255, 256, 257, 1000]
+  for n in sizes do
+    for s in insetSets do
+      let mut filler := ByteArray.empty
+      for _ in [0:n] do
+        st := { st with s := next st.s }
+        filler := filler.push (insetFiller st.s)
+      st ← checkInset st filler s "no member"
+      if n ≤ 70 then
+        for k in [0:n] do st ← checkInset st (filler.set! k (member s k)) s s!"plant {k}"
+      else
+        for k in [0, 1, 31, 32, 33, 62, 63, 64, 65, n - 1] do
+          if k < n then st ← checkInset st (filler.set! k (member s k)) s s!"plant {k}"
+      st ← checkInset st (ByteArray.mk (Array.replicate n s.toUInt8)) s "all members"
+      st ← checkInset st (ByteArray.mk (Array.replicate n 0)) s "all zero"
+      for _ in [0:3] do
+        let mut dense := ByteArray.empty
+        for _ in [0:n] do
+          st := { st with s := next st.s }
+          dense := dense.push (if (st.s >>> 40) % 4 == 0 then member s (st.s >>> 50).toNat else insetFiller st.s)
+        st ← checkInset st dense s "dense"
+  -- every byte value at the lane and block boundaries, for every set
+  for s in insetSets do
+    for v in [0:256] do
+      for n in [64, 65, 100, 130] do
+        for k in [0, 1, 15, 16, 17, 31, 32, 33, 62, 63, 64, 65, n - 1] do
+          if k < n then
+            let a := (ByteArray.mk (Array.replicate n 0x61)).set! k v.toUInt8
+            for i in [0, 1, k - 1, k, 37, 64] do
+              st ← check st "inset64 byte value" (inset64 a i.toUSize s == insetSpec a i s) s!"set {s} v {v} n {n} k {k} i {i}"
+              st := { st with ins := st.ins + 1 }
+  return st
+
 def run : IO UInt32 := do
   let mut st : St := { s := 0x9E3779B97F4A7C15 }
   let bigs : List USize := [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 15, 16, 17, 31, 32, 33, 40, 41, 42, 64, 1000, 0x7FFFFFFF, 0x80000000, 0xFFFFFFFF, 0x1FFFFFFFFFFFFFFF, 0x2000000000000000, 0x7FFFFFFFFFFFFFFF, 0x8000000000000000, 0xFFFFFFFFFFFFFFF0, 0xFFFFFFFFFFFFFFFF]
@@ -165,8 +219,9 @@ def run : IO UInt32 := do
         let expect := (nv.find? (· ≥ j)).getD endPos
         st ← check st "nextSet" (VbmSimd.nextSet b j == expect) s!"size {n} density {density} j {j}"
   st ← findRun st
+  st ← insetRun st
   if st.bad == 0 then
-    IO.println s!"shim-test: ok ({st.count} comparisons of the C shims against their Lean models; {st.avx} of them the AVX2 search)"
+    IO.println s!"shim-test: ok ({st.count} comparisons of the C shims against their Lean models; {st.avx} of them the AVX2 search; {st.ins} of them the AVX2 membership masks)"
     return 0
   IO.eprintln s!"shim-test: FAILED ({st.bad} of {st.count})"
   return 1

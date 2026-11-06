@@ -15,8 +15,8 @@ lake build shim-test
 probe="$PWD/scripts/land/bin/run-probe"
 "$probe" true || { echo "test-shims: run-probe is refused or unusable: no mutant can be run" >&2; exit 1; }
 # The AVX2 search must have RUN: on a CPU that has AVX2 (and always on x86-64 CI; aarch64 has no AVX2 body, the portable path runs) the test reports a non-zero number of its comparisons; a run that skipped them proves nothing about the shim.
-avx2_ran() {  # avx2_ran REQUIRED OUTPUT: fails when AVX2 comparisons are required and the output says none ran
-  local n; n=$(sed -n 's/.*; \([0-9][0-9]*\) of them the AVX2 search.*/\1/p' <<<"$2" | sed -n 1p)
+avx2_ran() {  # avx2_ran REQUIRED OUTPUT [WHAT]: fails when AVX2 comparisons are required and the output says none ran (WHAT: "search", the default, or "membership masks")
+  local n; n=$(sed -n "s/.*; \([0-9][0-9]*\) of them the AVX2 ${3:-search}.*/\1/p" <<<"$2" | sed -n 1p)
   [ -n "$n" ] || return 1
   [ "$1" != 1 ] || [ "$n" -gt 0 ]
 }
@@ -26,6 +26,9 @@ avx2_ran 1 "shim-test: ok (5 comparisons of the C shims against their Lean model
 need_avx2=0; if [ "$(uname -m)" != x86_64 ]; then need_avx2=0; elif [ -n "${CI:-}" ]; then need_avx2=1; elif grep -qw avx2 /proc/cpuinfo 2>/dev/null; then need_avx2=1; fi   # the AVX2 body exists only on x86-64; on aarch64 the portable path is the one that runs
 out=$(.lake/build/bin/shim-test); echo "$out"
 avx2_ran "$need_avx2" "$out" || { echo "test-shims: the AVX2 search did not run (required on CI and on a CPU with AVX2)" >&2; exit 1; }
+avx2_ran "$need_avx2" "$out" "membership masks" || { echo "test-shims: the AVX2 membership masks did not run (required on CI and on a CPU with AVX2)" >&2; exit 1; }
+avx2_ran 1 "shim-test: ok (5 comparisons; 3 of them the AVX2 search; 7 of them the AVX2 membership masks)" "membership masks" || { echo "test-shims: self-test: the AVX2-ran check rejects a run with AVX2 membership comparisons" >&2; exit 1; }
+! avx2_ran 1 "shim-test: ok (5 comparisons; 3 of them the AVX2 search; 0 of them the AVX2 membership masks)" "membership masks" || { echo "test-shims: self-test: the AVX2-ran check accepts a run with no membership comparisons" >&2; exit 1; }
 # The byte search against unmapped pages (tests/find_guard.c: any read outside the buffer is a SIGSEGV). Built with the toolchain's own compiler, from the include directory it is given.
 G=$(mktemp -d); leanc -O2 -I include tests/find_guard.c -o "$G/find_guard" && "$G/find_guard" || { rm -rf "$G"; echo "test-shims: the byte-search guard test failed" >&2; exit 1; }; rm -rf "$G"
 . scripts/lib-reap.sh   # an abort or exit stops the mutant jobs by the pids held here (each job is its own process group: set -m); never by pattern
@@ -48,9 +51,17 @@ mutants=(
   "find-index|s|return i + (size_t)__builtin_ctz(m); i += 32;|return i + 1 + (size_t)__builtin_ctz(m); i += 32;|"
   "find-scalar-member|s# [\|][\|] p\[i\] == b3##"
   "find-scalar-start|s|for (; i < n; i++) if|for (i = 0; i < n; i++) if|"
+  # the membership masks (T12): a read past the end, bits kept from before the start, a dropped member, no bounds guard, a wrong tail load, a wrong short-array case, a scalar loop that ignores the start
+  "inset-overread|s|if (r >= 64) return vbm_simd_members64(p + i, s);|if (r >= 1) return vbm_simd_members64(p + i, s);|"
+  "inset-no-shift-out|s|>> (64 - r)|>> 0|"
+  "inset-drop-member|s# [\|] (x1 == c3)##"
+  "inset-no-bounds|/vbm_simd_inset64_avx2_n/{n;s|  if (i >= n) return 0;||}"
+  "inset-tail-load|s|vbm_simd_members64(p + n - 64, s)|vbm_simd_members64(p + i, s)|"
+  "inset-short-array|s|if (n < 64) return vbm_simd_inset64_scalar(p, n, i, s);||"
+  "inset-scalar-start|s|j < 64 \&\& j < n - i|j < 64 \&\& j < n|"
 )
-# The AVX2 body (find-overread .. find-index) exists only on x86-64 (#if __x86_64__ in the header): on any other machine those mutants edit code that is not compiled, so they are not run there (the x86-64 job runs them).
-if [ "$(uname -m)" != x86_64 ]; then kept=(); for m in "${mutants[@]}"; do case ${m%%|*} in find-scalar-*|ld64-*|st64-*|st32-*|ctz-*) kept+=("$m");; esac; done; mutants=("${kept[@]}"); fi
+# The AVX2 body (find-overread .. find-index, inset-overread .. inset-short-array) exists only on x86-64 (#if __x86_64__ in the header): on any other machine those mutants edit code that is not compiled, so they are not run there (the x86-64 job runs them).
+if [ "$(uname -m)" != x86_64 ]; then kept=(); for m in "${mutants[@]}"; do case ${m%%|*} in find-scalar-*|inset-scalar-*|ld64-*|st64-*|st32-*|ctz-*) kept+=("$m");; esac; done; mutants=("${kept[@]}"); fi
 run_mutant() {
   local name=${1%%|*} expr=${1#*|}; local d=$T/$name
   mkdir -p "$d"; cp -r include tests lakefile.lean lean-toolchain VbmSimd VbmSimd.lean "$d"/ 2>/dev/null; cp -r .lake "$d"/.lake; rm -rf "$d"/.lake/config "$d"/.lake/lakefile.olean* "$d"/.lake/lakefile.olean.* 2>/dev/null || true   # the configured lakefile bakes in the header path (__dir__): reconfigure in the copy

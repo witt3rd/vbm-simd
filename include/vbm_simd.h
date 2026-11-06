@@ -68,6 +68,14 @@ static inline size_t vbm_simd_find_scalar(const uint8_t *p, size_t n, size_t i, 
   for (; i < n; i++) if (p[i] == b0 || p[i] == b1 || p[i] == b2 || p[i] == b3) return i;
   return n;
 }
+/* The scalar membership mask of the block at `i` (VS-12): the whole function without AVX2, and the short-array case of the AVX2 one. */
+static inline uint64_t vbm_simd_inset64_scalar(const uint8_t *p, size_t n, size_t i, uint32_t s) {
+  uint8_t b0 = (uint8_t)s, b1 = (uint8_t)(s >> 8), b2 = (uint8_t)(s >> 16), b3 = (uint8_t)(s >> 24);
+  uint64_t m = 0;
+  if (i >= n) return 0;
+  for (size_t j = 0; j < 64 && j < n - i; j++) { uint8_t b = p[i + j]; if (b == b0 || b == b1 || b == b2 || b == b3) m |= (uint64_t)1 << j; }
+  return m;
+}
 #if defined(__x86_64__) && defined(__clang__)
 typedef signed char vbm_v32 __attribute__((vector_size(32), aligned(1)));
 /* CPUID: AVX2 (leaf 7 ebx bit 5) with the OS saving the vector registers (OSXSAVE and AVX in leaf 1, XCR0 bits 1 and 2). Cached: the answer cannot change while the process runs. */
@@ -102,9 +110,29 @@ __attribute__((target("avx2"))) static inline size_t vbm_simd_find_avx2_n(const 
 }
 static inline uint8_t vbm_simd_has_avx2(lean_obj_arg u) { (void)u; return (uint8_t)vbm_simd_cpu_avx2(); }
 static inline size_t vbm_simd_find_avx2(b_lean_obj_arg a, uint32_t s, size_t i) { return vbm_simd_find_avx2_n(lean_sarray_cptr(a), lean_sarray_size(a), i, s); }
+/* ---- T12: membership masks of a block of 64 bytes (VS-12): `vbm_simd_inset64`, the C body of `inset64` (VbmSimd/Inset.lean). Bit p (p < 64) of the result is set iff byte i + p of `a` exists and is a member of the set `s` (up to four
+ * bytes packed in a word, as in T11); bits of bytes at or past the end are 0 (so a set that has the byte 0 does not flag the padding), and an `i` at or past the end gives 0. Total: it never reads outside [0, n). The AVX2 body is two
+ * 32-byte loads, a compare per member and one movemask each; a block that crosses the end is read as the last 64 bytes of the array (all inside it) with the bits of the bytes before `i` shifted out. */
+__attribute__((target("avx2"))) static inline uint64_t vbm_simd_members64(const uint8_t *p, uint32_t s) {
+  vbm_v32 x0, x1, z = {0};
+  __builtin_memcpy(&x0, p, 32); __builtin_memcpy(&x1, p + 32, 32);
+  vbm_v32 c0 = z + (signed char)s, c1 = z + (signed char)(s >> 8), c2 = z + (signed char)(s >> 16), c3 = z + (signed char)(s >> 24);
+  vbm_v32 e0 = (x0 == c0) | (x0 == c1) | (x0 == c2) | (x0 == c3);
+  vbm_v32 e1 = (x1 == c0) | (x1 == c1) | (x1 == c2) | (x1 == c3);
+  return (uint64_t)(uint32_t)__builtin_ia32_pmovmskb256(e0) | ((uint64_t)(uint32_t)__builtin_ia32_pmovmskb256(e1) << 32);
+}
+__attribute__((target("avx2"))) static inline uint64_t vbm_simd_inset64_avx2_n(const uint8_t *p, size_t n, size_t i, uint32_t s) {
+  if (i >= n) return 0;
+  size_t r = n - i;
+  if (r >= 64) return vbm_simd_members64(p + i, s);
+  if (n < 64) return vbm_simd_inset64_scalar(p, n, i, s);
+  return vbm_simd_members64(p + n - 64, s) >> (64 - r);
+}
+static inline uint64_t vbm_simd_inset64(b_lean_obj_arg a, size_t i, uint32_t s) { return vbm_simd_inset64_avx2_n(lean_sarray_cptr(a), lean_sarray_size(a), i, s); }
 #else
 static inline uint8_t vbm_simd_has_avx2(lean_obj_arg u) { (void)u; return 0; }
 static inline size_t vbm_simd_find_avx2(b_lean_obj_arg a, uint32_t s, size_t i) { return vbm_simd_find_scalar(lean_sarray_cptr(a), lean_sarray_size(a), i, s); }
+static inline uint64_t vbm_simd_inset64(b_lean_obj_arg a, size_t i, uint32_t s) { return vbm_simd_inset64_scalar(lean_sarray_cptr(a), lean_sarray_size(a), i, s); }
 #endif
 
 #endif
