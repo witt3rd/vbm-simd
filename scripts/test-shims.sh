@@ -49,6 +49,8 @@ mutants=(
   "find-scalar-member|s# [\|][\|] p\[i\] == b3##"
   "find-scalar-start|s|for (; i < n; i++) if|for (i = 0; i < n; i++) if|"
 )
+# The AVX2 body (find-overread .. find-index) exists only on x86-64 (#if __x86_64__ in the header): on any other machine those mutants edit code that is not compiled, so they are not run there (the x86-64 job runs them).
+if [ "$(uname -m)" != x86_64 ]; then kept=(); for m in "${mutants[@]}"; do case ${m%%|*} in find-scalar-*|ld64-*|st64-*|st32-*|ctz-*) kept+=("$m");; esac; done; mutants=("${kept[@]}"); fi
 run_mutant() {
   local name=${1%%|*} expr=${1#*|}; local d=$T/$name
   mkdir -p "$d"; cp -r include tests lakefile.lean lean-toolchain VbmSimd VbmSimd.lean "$d"/ 2>/dev/null; cp -r .lake "$d"/.lake; rm -rf "$d"/.lake/config "$d"/.lake/lakefile.olean* "$d"/.lake/lakefile.olean.* 2>/dev/null || true   # the configured lakefile bakes in the header path (__dir__): reconfigure in the copy
