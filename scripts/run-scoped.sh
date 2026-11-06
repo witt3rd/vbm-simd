@@ -6,6 +6,11 @@
 # Without a usable systemd user manager (hosted CI) it falls back to setsid + timeout --kill-after with a trap that stops its own group: the same three guarantees (bound, abort, reaped on exit).
 # scripts/lint-scoped-runners.sh (Tier 1) fails any script that runs a listed runner without going through here.
 set -uo pipefail
+# The heavy-host guard (docs/no-build-host.md): on a host with a no-build marker nothing starts (exit 2). It runs first, and again in the scoped side (--exec-argfile) just before the command is exec'd. Missing guard = refused.
+d=$(dirname "$(readlink -f "$0")"); nbg=
+for c in "$d/land/bin/no-build-guard" "$d/../bin/no-build-guard"; do [ -x "$c" ] && { nbg=$c; break; }; done
+[ -n "$nbg" ] || { echo "run-scoped: REFUSED: no-build-guard is not installed next to this helper" >&2; exit 2; }
+"$nbg" || exit 2
 # internal: the scoped side. The arguments travel in a NUL-delimited file, because systemd-run's treatment of $ in its own arguments differs between versions.
 if [ "${1:-}" = --exec-argfile ]; then mapfile -d '' -t cmd < "$2"; rm -f "$2"; exec "${cmd[@]}"; fi
 [ $# -ge 3 ] || { echo "usage: run-scoped.sh NAME MAXSEC CMD..." >&2; exit 2; }
