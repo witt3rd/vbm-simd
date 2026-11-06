@@ -78,14 +78,14 @@ Entry format: **What** it is; **Enters** where it enters; **Assumes** what we as
 - **Plan:** sandbox. Pin the release checksum in a lockfile once CI exists; until then the tarball's integrity is GitHub's.
 - **Covers:** `tool:mise`
 
-### T07. git, gh, flock, python3: the process tooling
-- **What:** `git` and `gh` (the red check and the rebase and push steps of the lander), `flock` (its mutex), `python3` (the trust-ledger and workflow checkers). They run on the developer's machine and in CI; none is part of any artifact.
+### T07. git, gh, python3: the process tooling
+- **What:** `git` and `gh` (the rebase and push steps of the lander), `python3` (the trust-ledger and workflow checkers). They run on the developer's machine and in CI; none is part of any artifact.
 - **Enters:** `scripts/land-direct` and the vendored `scripts/land/`, `scripts/trust_ledger.py`, `scripts/lint-workflows.py`, the Tier 1 scripts.
 - **Assumes:** they do what their manuals say; the self-tests of the scripts that use them are the check that our use is right; no written contract.
 - **Test:** scripts/test_lint_workflows.sh and scripts/spec-check.sh (each runs its checker on planted failures); the lander's own suite lives in its source repository.
 - **Owner:** upstream tools; the repository owner approves the scripts (CODEOWNERS).
 - **Plan:** accept, because they touch the process and not the artifact: a compromised tool could land a bad change, which the gates and the owner's review are there to catch.
-- **Covers:** `tool:git` `tool:gh` `tool:flock` `tool:python3`
+- **Covers:** `tool:git` `tool:gh` `tool:python3`
 
 ### T08. The CI runner and workflow actions (.github/workflows/ci.yml)
 - **What:** `ci.yml` runs `scripts/tier1.sh` on every push to `main` and `scripts/tier2.sh` every six hours and on manual dispatch, on GitHub-hosted `ubuntu-latest` runners only (`scripts/lint-workflows.py` fails Tier 1 on a self-hosted label, on a `pull_request_target` trigger and on any secret other than the default token). No pull-request trigger, so a fork's code never runs with the repository's token. Three third-party actions, pinned by commit sha: `actions/checkout` v4, `actions/cache` v4, `jdx/mise-action` v2. Token: the default `GITHUB_TOKEN`, `contents: read`; no secrets.
