@@ -37,14 +37,14 @@ a carry chain is a sequential machine in disguise, so the proof is an induction 
 ## The ethos: verified bare metal (VBM)
 
 VBM is a standard for libraries that are small, proved, and run on nothing; see [vbm](https://github.com/witt3rd/vbm). Here: the library imports only Lean's `Init`; nothing is allocated by the kernels; the proofs are about the code that runs; every hand-written line is in [`docs/trust-ledger.md`](docs/trust-ledger.md);
-and coding agents wrote it under mechanical gates (forbidden constructs, the axiom gate, the spec-clause gate, the trust-ledger gate, each with a negative self-test showing it can fail) instead of line-by-line human review.
+and coding agents wrote it under mechanical gates (forbidden constructs, the axiom gate, the spec-clause gate, the trust-ledger gate) instead of line-by-line human review.
 
 ## Build and test
 
 ```sh
 mise install                     # the pinned Lean release (mise.toml), no elan
 mise exec -- lake build          # the library and the proofs, zero warnings
-mise exec -- scripts/tier1.sh    # the whole gate: lints, build, axiom gate, spec clauses, trust ledger (about a minute)
+mise exec -- scripts/tier1.sh    # the whole check: build, shim tests, axiom gate, spec clauses, trust ledger (under a minute)
 mise exec -- scripts/tier2.sh    # the slow checks: leanchecker --fresh and the independent checker nanoda
 ```
 

@@ -1,5 +1,5 @@
 # Tier 1 on a push to main only (scripts/land-direct already ran it locally on the exact combination: this is the independent check that defines "main is red", read by the lander);
-# Tier 2 (leanchecker, nanoda) on a schedule and on dispatch. Hosted minutes are budgeted: no pull_request trigger. Public-repository rules, enforced by scripts/lint-workflows.py (Tier 1):
+# Tier 2 (leanchecker, nanoda) on a schedule and on dispatch. Hosted minutes are budgeted: no pull_request trigger. Public-repository rules:
 # GitHub-hosted runners only (self-hosted only while .github/visibility says private), no pull_request_target, no secret but the default read-only token; actions are pinned by commit SHA. Trust ledger entry T08.
 name: ci
 on:

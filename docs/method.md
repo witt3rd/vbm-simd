@@ -19,5 +19,5 @@ primitives (a 64-bit addition for escapes, a prefix xor for string parity), and 
 **A restriction worth knowing.** The escape kernel is specified only at bytes that are not themselves backslashes: it does not mark the escaped backslashes inside a run, and the one consumer (`quote and not escaped`) never asks about a backslash
 (`quote_not_escaped_spec` states exactly the consumer's use, with the hypothesis that the quote and backslash masks are disjoint). Stating less than the machine says, and exactly what is used, keeps the proof small.
 
-**Tools used and not used.** Standard axioms only. `bv_decide` is excluded (`docs/findings/bv-decide.md`); `decide +kernel` and `native_decide` are excluded by `scripts/lint-proof-eval.sh`, which also bounds the size of any literal next to `decide` or `rfl`
+**Tools used and not used.** Standard axioms only. `bv_decide` is excluded (`docs/findings/bv-decide.md`); `decide +kernel` and `native_decide` are excluded (see AGENTS.md)
 (restate through a shallow lemma instead of evaluating a big constant).
