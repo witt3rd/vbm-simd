@@ -46,8 +46,8 @@ def findSwar (a : ByteArray) (s : UInt32) (i : Nat) : Nat :=
 (`tests/ShimTest.lean`). `hasAvx2 ()` asks the CPU once (cpuid, and that the OS saves the vector state). `findFirstOf` takes the shim when it is there and the proved `findSwar` otherwise;
 `findFirstOf_spec` holds for either answer of the CPU test, so the proof does not depend on which one a machine gives. -/
 
-/-- Does this CPU (and OS) run AVX2? The model says `false`; `findFirstOf_spec` is true for either value. -/
-@[extern "vbm_simd_has_avx2"] def hasAvx2 (_ : Unit) : Bool := false
+/-- Does this CPU (and OS) run AVX2? The model says `false`; `findFirstOf_spec` is true for either value. `never_extract`: the compiler must not hoist `hasAvx2 ()` into a closed constant computed once at start-up (`lean_uint8_once`, a runtime function the freestanding builds of the consumers do not have); the shim caches the answer itself. -/
+@[extern "vbm_simd_has_avx2", never_extract] def hasAvx2 (_ : Unit) : Bool := false
 
 /-- The AVX2 search, 32 bytes per step, never reading outside the array (model: `findSpec`; the index is a word and the result is `a.size` when there is no match or `i` is past the end). -/
 @[extern "vbm_simd_find_avx2"] def findAvx2 (a : @& ByteArray) (s : UInt32) (i : USize) : USize := (findSpec a s i.toNat).toUSize
