@@ -9,10 +9,8 @@ LAND_BASE=main
 #   Shell:   LAND_GATES_CMD=bash -n scripts/*.sh                                      LAND_TEST_CMD=tests/run.sh
 LAND_TEST_CMD=true
 
-# Red main: the Tier 1 job of the latest push run of this workflow. Use LAND_RED_MODE=off for a repository with no CI yet.
-LAND_CI_WORKFLOW=ci.yml
-LAND_TIER1_JOB=tier1
-LAND_RED_MODE=push
+# Inherited red: the lines of Tier 1's output that name a failure (a landing may pass a Tier 1 that fails only with failures the bare base also has). The default suits `FAIL ...` / `FAILED ...` lines.
+# LAND_FAIL_PATTERN=^(FAIL|FAILED)([ :]|$)
 
 # Size budget on production paths (a Diff-Budget: trailer waives it), commit rules, the gate-defining set.
 #LAND_PROD_PATHS=src
@@ -24,3 +22,6 @@ LAND_RED_MODE=push
 # Gate-edit approvals (docs/gate-edit-approvals.md): files that may only GAIN lines; a removed or changed line needs an exact-diff approval already on main.
 #LAND_GATE_APPEND_ONLY=scripts/tier1.sh scripts/gates/*
 #LAND_APPROVAL_DAYS=7
+# Protected sets: a landing that touches a path of this list (the list, the configuration and the hooks always count) needs a one-time approval for exactly that set of paths already on main.
+#LAND_PROTECTED_LIST=scripts/protected-paths.txt
+#LAND_PROTECTED_APPROVALS=scripts/protected-approvals.txt

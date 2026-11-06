@@ -36,12 +36,47 @@ hash binds the path, the hunks, the mode lines and the removed and added text; i
 
 A repository's own `post-rebase` judge (a stricter one) may ask for the approvals this landing consumes: `$LAND_GATE_APPROVED_FILE` lists `FILE HASH` per consumed approval; the lander has already enforced 1 to 7.
 
+## Protected sets: a protected change needs an approval too (`LAND_PROTECTED_LIST`, optional)
+
+Telling an agent "do not land protected changes" does not hold: one misread message lands one. With `LAND_PROTECTED_LIST` set, the lander makes it structural. The key names a **protected-paths list**
+in the repository (read from the base branch, like the configuration): one entry per line, a trailing `/` is a directory, anything else is a shell pattern (`*` matches `/`), a leading `?` marks an entry that
+may match nothing yet, `#` starts a comment. A landing whose **net diff** (the rebased tree against base) touches ANY path the list covers is **refused (12)** unless the base branch holds a one-time approval for exactly
+that set of paths:
+
+    FILE-SET | sha256 of the exact net diff over exactly that set | reason | YYYY-MM-DD
+
+- **The file-set key is canonical**: the touched protected paths, plain repository paths (a leading dot is fine), sorted in the C locale, unique, joined by commas, no spaces: `gate.sh,spec/x`. A key that is not in that form is
+  not an approval record, and one path is the single-file record of the gate-edit rule above: the same format, the same rules.
+- **The hash** is the sha256 of the canonical diff over exactly those paths: `land-direct --print-gate-diff-hash gate.sh,spec/x` (any order), or `land-direct --print-gate-diff-hash @protected [<rev>]`, which finds the protected paths the
+  change touches itself and prints the record to write (`--print-gate-diff` prints the diff the judge reads).
+- **Exactly the set**: an approval for a subset or a superset of the touched paths approves nothing, and neither does a hash over a different diff of the same paths. Renames, mode changes, symlinks and submodules are plain paths of the
+  diff (no rename detection, so both sides of a move are touched); a directory replaced by a file or a symlink touches everything it covered.
+- **The list is protected, and so are the configuration and the hooks**: the list file, the configuration file and `LAND_HOOKS_DIR` are always part of the set, so removing or narrowing an entry (or emptying or deleting the list) is a protected change that needs its own
+  approval. The set that applies is the list on base united with the list in the change: a change that adds an entry and edits a file under it needs both. The two approvals files are not part of the set: their own rules (below) govern them.
+- **Fails closed**: no list on base, an empty list, or a line that is not an entry refuses every landing (an unreadable list protects nothing).
+- **Where the approvals live**: `LAND_PROTECTED_APPROVALS` (a path), default the gate-edit approvals file. A repository that already has an approvals file of its own for something else keeps it separate; a record in one file never approves
+  a change judged by the other. Rules 1 to 7 apply to each file: read from base, one line alone in its commit and landing, announced to the judge first, one-time (removed by the landing that uses it), 7 days, withdrawn by an
+  `Approval-Withdrawn: FILE-SET <hash prefix>` trailer, malformed or self-referencing records refused.
+- **After Tier 1**: when Tier 1 regenerates generated files, the judge runs again on the tree that would land, so a protected generated path cannot change after the verdict.
+- **Net diff**: a change and its revert inside one landing touch nothing and need nothing.
+- **A revert of a protected change needs the approval too.** A revert that lands protected paths is a protected change like any other: first the approval line (its own landing, announced), then the revert, which removes the line.
+  On a **frozen base** only a fix or a revert lands, and the approval landing is neither (it changes only the approvals file), so it is refused (14). A red main no longer stops anything. The path: the operator runs the approval landing with
+  `LAND_FIX_FOR_RED=1` (treat this change as a fix so it passes the freeze; operator environment, not policy), announces it to the judge as always, and then lands the revert (a true `git revert` commit, whose message names the commit it undoes, passes a freeze by itself).
+  Nothing about the approval is waived: only the freeze is.
+
 ## How to edit a gate line (the author's steps)
 
 1. Make the edit in your worktree; commit it. Run `land-direct --print-gate-diff-hash FILE` and note the hash. (Do not land yet.)
 2. In a fresh worktree off `origin/<base>`: add the record to `scripts/gate-edit-approvals.txt`, one commit that changes nothing else, `scripts/land-direct`. **Tell the judge before the next step**: the approval is the visible record he reads.
 3. When the judge has read it: in the edit's worktree, remove the record (a commit, or in the edit's commit), rebase, `scripts/land-direct`. The same landing carries the edit and the consumption.
 4. If the edit is not landed within `LAND_APPROVAL_DAYS`, the approval is stale: a new approval comes first.
+
+## What the protected-set rule stops, and what it does not (stated limit)
+
+**This mechanism stops a MISREAD** (a worker landing a protected change on a message that was not a land decision): without a line on base for that exact set and diff, the lander refuses, whatever the worker believes it was told.
+**A DELIBERATE self-approval in two landings** (write the approval line, land it, then land the change) is stopped only by the announcement to the owner and by the operating rule that approval lines land only through the
+owner after an explicit land decision. The lander makes the sequence mechanical (never in one landing, one line, exact set and diff, one-time, 7 days); it cannot tell an approval the owner read from one he did not.
+A pause or a resume message is never a land decision.
 
 ## The honest limit
 

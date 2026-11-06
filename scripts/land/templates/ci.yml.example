@@ -1,5 +1,5 @@
 # Tier 1 on a push to the base branch only (the lander already ran it locally on the exact combination: this is the independent check that defines
-# "main is red"); Tier 2 on a schedule. Hosted minutes are budgeted: no pull_request trigger. The job names are what land.conf's LAND_TIER1_JOB reads.
+# "main is red"); Tier 2 on a schedule. Hosted minutes are budgeted: no pull_request trigger. The watchdog (templates/vbm-land-revert.yml) runs after this workflow fails on a push.
 name: ci
 on:
   push:

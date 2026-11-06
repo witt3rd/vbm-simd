@@ -1,5 +1,5 @@
 # Is this repository's pinned copy of vbm-land intact, and is a newer release out? On dispatch; weekly too when the source is public (install keeps the two lines marked weekly only then: a private source needs a secret, so a scheduled run would fail red; run it by hand: land-update --check). Read-only: it changes nothing.
-# A separate workflow from the gate (LAND_CI_WORKFLOW), so a failure here can never make the base branch "red" and block landing: it is a visible reminder, not a gate.
+# A separate workflow from the gate, so a failure here can never make the base branch "red" and trigger the watchdog: it is a visible reminder, not a gate.
 # The update itself is yours: run the update-vbm-land skill (scripts/land/bin/land-update <tag>). A PUBLIC source needs no secret (it is cloned anonymously over https); only a private source needs a read token in the secret VBM_LAND_TOKEN.
 # LAND_AUTO_UPDATE in scripts/land.conf (none | patch | minor; default none) lets this workflow land the update itself through the repository's own lander (a major release never):
 # only then does it need to push, with a token THIS repository holds (secret VBM_LAND_PUSH_TOKEN: a push by the default workflow token does not start the push CI that defines "red"),
