@@ -3,7 +3,7 @@
  * against the start of its page (n = 0 puts the pointer on the guard itself), four sets, a member planted at every position and none, every start from 0 to n + 1. The scalar loop is checked
  * on the same cases (it is the whole search on a CPU without AVX2 and the tail of the AVX2 one for short arrays); the AVX2 search only when this CPU has it. Built and run by scripts/test-shims.sh. */
 #include "vbm_simd.h"
-/* The Lean toolchain's compiler ships no libc headers (only its glibc libraries): the five libc functions used are declared here; the values are Linux x86-64's (this test runs only where the AVX2 body exists). */
+/* The Lean toolchain's compiler ships no libc headers (only its glibc libraries): the five libc functions used are declared here; the values are Linux's, the same on x86-64 and aarch64. On aarch64 there is no AVX2 body: only the scalar loop is checked. */
 extern void *mmap(void *, size_t, int, int, int, long);
 extern int mprotect(void *, size_t, int);
 extern int printf(const char *, ...);
@@ -23,7 +23,11 @@ int main(void) {
   if (m == (void *)-1 || mprotect(m, pg, PROT_NONE) || mprotect(m + 2 * pg, pg, PROT_NONE)) { dprintf(2, "find-guard: cannot set up the guard pages\n"); return 2; }
   uint8_t *mid = m + pg;
   const uint32_t sets[4] = {0x0D0D0D0A, 0x78787878, 0xFF807F00, 0x5C220A2C};
+#if defined(__x86_64__) && defined(__clang__)
   int avx = vbm_simd_cpu_avx2();
+#else
+  int avx = 0;
+#endif
   size_t count = 0, bad = 0;
   for (int flush = 0; flush < 2; flush++)
     for (size_t n = 0; n <= 160; n++)
@@ -36,7 +40,9 @@ int main(void) {
           for (size_t i = 0; i <= n + 1; i++) {
             size_t want = naive(p, n, i, s);
             if (vbm_simd_find_scalar(p, n, i, s) != want) { bad++; dprintf(2, "find-guard: scalar n=%zu i=%zu set=%08x plant=%ld flush=%d\n", n, i, s, plant, flush); }
+#if defined(__x86_64__) && defined(__clang__)
             if (avx && vbm_simd_find_avx2_n(p, n, i, s) != want) { bad++; dprintf(2, "find-guard: avx2 n=%zu i=%zu set=%08x plant=%ld flush=%d\n", n, i, s, plant, flush); }
+#endif
             count++;
           }
         }
