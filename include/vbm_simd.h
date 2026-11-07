@@ -79,14 +79,18 @@ static inline void vbm_simd_move_short(uint8_t *d, const uint8_t *s, size_t n) {
   else if (n == 1) d[0] = s[0];
 }
 extern lean_obj_res lean_byte_array_copy_slice(b_lean_obj_arg, lean_obj_arg, lean_obj_arg, lean_obj_arg, lean_obj_arg, uint8_t);   /* the runtime's (lean.h does not declare it; the generated C does, with the same type) */
+/* The general case, in a function of its own: the three conversions of a size to a Lean number (a call each when the value is past the boxed range) need callee-saved registers, which the fast path then no longer pays for in a prologue. */
+static __attribute__((noinline)) lean_obj_res vbm_simd_append_slow(lean_obj_arg t, b_lean_obj_arg a, size_t i, size_t n) {
+  return lean_byte_array_copy_slice(a, lean_usize_to_nat(i), t, lean_usize_to_nat(lean_sarray_size(t)), lean_usize_to_nat(n), 0);
+}
 static inline __attribute__((noinline)) lean_obj_res vbm_simd_append(lean_obj_arg t, b_lean_obj_arg a, size_t i, size_t n) {
   size_t ts = lean_sarray_size(t);
-  if (vbm_simd_append_fits(ts, lean_sarray_capacity(t), lean_sarray_size(a), i, n) && lean_is_exclusive(t)) {
+  if (__builtin_expect(vbm_simd_append_fits(ts, lean_sarray_capacity(t), lean_sarray_size(a), i, n) && lean_is_exclusive(t), 1)) {
     vbm_simd_move_short(lean_sarray_cptr(t) + ts, lean_sarray_cptr(a) + i, n);
     lean_sarray_set_size(t, ts + n);
     return t;
   }
-  return lean_byte_array_copy_slice(a, lean_usize_to_nat(i), t, lean_usize_to_nat(ts), lean_usize_to_nat(n), 0);
+  return vbm_simd_append_slow(t, a, i, n);
 }
 
 /* ---- T11: find the first byte of a set (VS-11): the AVX2 search `vbm_simd_find_avx2` and the CPU test `vbm_simd_has_avx2`. The set `s` is up to four bytes packed in a word (byte k = member k).

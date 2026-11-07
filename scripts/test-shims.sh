@@ -70,7 +70,7 @@ mutants=(
   "append-seven|s|else if (n >= 8) { uint64_t x, y;|else if (n >= 7) { uint64_t x, y;|"
   "append-sixteen|s|if (n >= 16) {|if (n >= 15) {|"
   "append-sixteen-tail|s|__builtin_memcpy(d + n - 16, \&y0, 8)|__builtin_memcpy(d + n - 15, \&y0, 8)|"
-  "append-shared|s| \&\& lean_is_exclusive(t))|)|"
+  "append-shared|s| \&\& lean_is_exclusive(t), 1))|, 1))|"
   "append-size-plus|s|lean_sarray_set_size(t, ts + n)|lean_sarray_set_size(t, ts + n + 1)|"
   "append-no-size|/lean_sarray_set_size(t, ts + n);/d"
   # the class masks (T14): a read past the end, the low-nibble lookup indexed by the high nibble, a wrong high-nibble shift, a mask word dropped (the fourth mask is the third), a missing inversion, the second half not shifted into place,
