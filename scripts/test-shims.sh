@@ -29,6 +29,7 @@ avx2_ran "$need_avx2" "$out" || { echo "test-shims: the AVX2 search did not run 
 avx2_ran "$need_avx2" "$out" "membership masks" || { echo "test-shims: the AVX2 membership masks did not run (required on CI and on a CPU with AVX2)" >&2; exit 1; }
 avx2_ran 1 "shim-test: ok (5 comparisons; 3 of them the AVX2 search; 7 of them the AVX2 membership masks)" "membership masks" || { echo "test-shims: self-test: the AVX2-ran check rejects a run with AVX2 membership comparisons" >&2; exit 1; }
 ! avx2_ran 1 "shim-test: ok (5 comparisons; 3 of them the AVX2 search; 0 of them the AVX2 membership masks)" "membership masks" || { echo "test-shims: self-test: the AVX2-ran check accepts a run with no membership comparisons" >&2; exit 1; }
+avx2_ran "$need_avx2" "$out" "class masks" || { echo "test-shims: the AVX2 class masks did not run (required on CI and on a CPU with AVX2)" >&2; exit 1; }
 # The byte search against unmapped pages (tests/find_guard.c: any read outside the buffer is a SIGSEGV). Built with the toolchain's own compiler, from the include directory it is given.
 G=$(mktemp -d); leanc -O2 -I include tests/find_guard.c -o "$G/find_guard" && "$G/find_guard" || { rm -rf "$G"; echo "test-shims: the byte-search guard test failed" >&2; exit 1; }; rm -rf "$G"
 . scripts/lib-reap.sh   # an abort or exit stops the mutant jobs by the pids held here (each job is its own process group: set -m); never by pattern
@@ -72,9 +73,22 @@ mutants=(
   "append-shared|s| \&\& lean_is_exclusive(t))|)|"
   "append-size-plus|s|lean_sarray_set_size(t, ts + n)|lean_sarray_set_size(t, ts + n + 1)|"
   "append-no-size|/lean_sarray_set_size(t, ts + n);/d"
+  # the class masks (T14): a read past the end, the low-nibble lookup indexed by the high nibble, a wrong high-nibble shift, a mask word dropped (the fourth mask is the third), a missing inversion, the second half not shifted into place,
+  # the scalar table's high lookup without its offset, a store into a shared destination, a store of a word that does not wholly fit
+  "class-overread|s|if (i < n \&\& n - i >= 64) vbm_simd_class_words_avx2|if (i < n \&\& n - i >= 1) vbm_simd_class_words_avx2|"
+  "class-low-index|s|__builtin_ia32_pshufb256(lo, x \& nib)|__builtin_ia32_pshufb256(lo, xh \& nib)|"
+  "class-shift|s|(vbm_w16)x >> 4)|(vbm_w16)x >> 3)|"
+  "class-mask-dropped|s|(c \& m3) == z|(c \& m2) == z|"
+  "class-no-invert|s|(uint64_t)(uint32_t)~e0 <<|(uint64_t)(uint32_t)e0 <<|"
+  "class-half-shift|s|~e2 << (32 \* h)|~e2 << 0|"
+  "class-scalar-high|s|t\[16 + (v >> 4)\] \& m)|t[(v >> 4)] \& m)|"
+  "class-shared|/vbm_simd_put4(lean_obj_arg/,/^}/s|lean_sarray_ensure_exclusive(out)|out|"
+  "class-shared-slow|/vbm_simd_put4_slow/,/^}/s|lean_sarray_ensure_exclusive(out)|out|"
+  "class-partial-store|/vbm_simd_put4_slow/,/^}/s|8 \* k + 8 <= n|8 * k < n|"
+  "class-fast-bound|s|if (lean_sarray_size(out) >= 32) {|if (lean_sarray_size(out) >= 24) {|"
 )
-# The AVX2 body (find-overread .. find-index, inset-overread .. inset-short-array) exists only on x86-64 (#if __x86_64__ in the header): on any other machine those mutants edit code that is not compiled, so they are not run there (the x86-64 job runs them).
-if [ "$(uname -m)" != x86_64 ]; then kept=(); for m in "${mutants[@]}"; do case ${m%%|*} in find-scalar-*|inset-scalar-*|append-*|ld64-*|st64-*|st32-*|ctz-*) kept+=("$m");; esac; done; mutants=("${kept[@]}"); fi
+# The AVX2 body (find-overread .. find-index, inset-overread .. inset-short-array, class-overread .. class-half-shift) exists only on x86-64 (#if __x86_64__ in the header): on any other machine those mutants edit code that is not compiled, so they are not run there (the x86-64 job runs them).
+if [ "$(uname -m)" != x86_64 ]; then kept=(); for m in "${mutants[@]}"; do case ${m%%|*} in find-scalar-*|inset-scalar-*|append-*|class-scalar-*|class-shared*|class-partial-store|class-fast-bound|ld64-*|st64-*|st32-*|ctz-*) kept+=("$m");; esac; done; mutants=("${kept[@]}"); fi
 run_mutant() {
   local name=${1%%|*} expr=${1#*|}; local d=$T/$name
   mkdir -p "$d"; cp -r include tests lakefile.lean lean-toolchain VbmSimd VbmSimd.lean "$d"/ 2>/dev/null; cp -r .lake "$d"/.lake; rm -rf "$d"/.lake/config "$d"/.lake/lakefile.olean* "$d"/.lake/lakefile.olean.* 2>/dev/null || true   # the configured lakefile bakes in the header path (__dir__): reconfigure in the copy

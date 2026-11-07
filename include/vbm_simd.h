@@ -105,6 +105,38 @@ static inline uint64_t vbm_simd_inset64_scalar(const uint8_t *p, size_t n, size_
   for (size_t j = 0; j < 64 && j < n - i; j++) { uint8_t b = p[i + j]; if (b == b0 || b == b1 || b == b2 || b == b3) m |= (uint64_t)1 << j; }
   return m;
 }
+/* ---- T14: the class masks of a block of 64 bytes (VS-14): `vbm_simd_classify64`, the C body of `classify64` (VbmSimd/Classify.lean). A byte v has the class bits t[v & 15] & t[16 + (v >> 4)] (`t`: 32 bytes of nibble tables; the
+ * model reads zero past the end of the Lean array, so a shorter one is zero-padded here); mask r (byte r of `ms`) has bit j set iff byte i + j exists (below n) and its class bits meet that mask byte. The four masks are stored as
+ * the words 0 to 3 of `out` (in place when unshared, copied first when shared), a word only where all its eight bytes lie inside `out`. Total: it never reads outside [0, n) of `a` nor outside the 32 bytes of the table, and
+ * never writes outside `out`. The AVX2 body (clang, x86-64) is two 32-byte loads, two byte shuffles and a compare per mask and half; a block that does not lie wholly inside the array, and every other build, is the scalar loop. */
+static inline uint64_t vbm_simd_class_scalar(const uint8_t *p, size_t n, size_t i, const uint8_t *t, uint8_t m) {
+  uint64_t r = 0;
+  if (i >= n) return 0;
+  for (size_t j = 0; j < 64 && j < n - i; j++) { uint8_t v = p[i + j]; if ((uint8_t)(t[v & 15] & t[16 + (v >> 4)] & m)) r |= (uint64_t)1 << j; }
+  return r;
+}
+static __attribute__((noinline)) void vbm_simd_class_words_scalar(const uint8_t *p, size_t n, size_t i, const uint8_t *t, uint32_t ms, uint64_t w[4]) {
+  for (int k = 0; k < 4; k++) w[k] = vbm_simd_class_scalar(p, n, i, t, (uint8_t)(ms >> (8 * k)));
+}
+/* The four words stored at the start of `out`, each only where it lies wholly inside (the slow path: an `out` of less than 32 bytes). */
+static __attribute__((noinline)) lean_obj_res vbm_simd_put4_slow(lean_obj_arg out, const uint64_t w[4]) {
+  size_t n = lean_sarray_size(out);
+  if (n < 8) return out;
+  lean_object *r = lean_sarray_ensure_exclusive(out);
+  uint8_t *q = lean_sarray_cptr(r);
+  for (size_t k = 0; k < 4 && 8 * k + 8 <= n; k++) __builtin_memcpy(q + 8 * k, &w[k], 8);
+  return r;
+}
+static inline lean_obj_res vbm_simd_put4(lean_obj_arg out, uint64_t w0, uint64_t w1, uint64_t w2, uint64_t w3) {
+  if (lean_sarray_size(out) >= 32) {
+    lean_object *r = lean_sarray_ensure_exclusive(out);
+    uint8_t *q = lean_sarray_cptr(r);
+    __builtin_memcpy(q, &w0, 8); __builtin_memcpy(q + 8, &w1, 8); __builtin_memcpy(q + 16, &w2, 8); __builtin_memcpy(q + 24, &w3, 8);
+    return r;
+  }
+  const uint64_t w[4] = {w0, w1, w2, w3};
+  return vbm_simd_put4_slow(out, w);
+}
 #if defined(__x86_64__) && defined(__clang__)
 typedef signed char vbm_v32 __attribute__((vector_size(32), aligned(1)));
 /* CPUID: AVX2 (leaf 7 ebx bit 5) with the OS saving the vector registers (OSXSAVE and AVX in leaf 1, XCR0 bits 1 and 2). Cached: the answer cannot change while the process runs. */
@@ -158,10 +190,54 @@ __attribute__((target("avx2"))) static inline uint64_t vbm_simd_inset64_avx2_n(c
   return vbm_simd_members64(p + n - 64, s) >> (64 - r);
 }
 static inline uint64_t vbm_simd_inset64(b_lean_obj_arg a, size_t i, uint32_t s) { return vbm_simd_inset64_avx2_n(lean_sarray_cptr(a), lean_sarray_size(a), i, s); }
+/* T14: the AVX2 body. `p` has 64 readable bytes. The tables are broadcast to both 128-bit lanes (the byte shuffle works within a lane); the low nibbles are `x & 15`, the high nibbles `(x >> 4) & 15` (a 16-bit shift: the bits that
+ * cross from the neighbour byte are cleared by the mask), each used as the shuffle index, and the class bits are the and of the two lookups. A mask is `(class & m) != 0` per byte, by a compare with zero and a movemask, inverted. */
+typedef signed char vbm_v16 __attribute__((vector_size(16), aligned(1)));
+typedef unsigned short vbm_w16 __attribute__((vector_size(32), aligned(1)));
+__attribute__((target("avx2"))) static inline void vbm_simd_class_words_avx2(const uint8_t *p, const uint8_t *t, uint32_t ms, uint64_t w[4]) {
+  vbm_v16 l16, h16;
+  __builtin_memcpy(&l16, t, 16); __builtin_memcpy(&h16, t + 16, 16);
+  vbm_v32 lo = __builtin_shufflevector(l16, l16, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15);
+  vbm_v32 hi = __builtin_shufflevector(h16, h16, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15);
+  vbm_v32 z = {0}, nib = z + 15;
+  vbm_v32 m0 = z + (signed char)ms, m1 = z + (signed char)(ms >> 8), m2 = z + (signed char)(ms >> 16), m3 = z + (signed char)(ms >> 24);
+  uint64_t r0 = 0, r1 = 0, r2 = 0, r3 = 0;
+  for (int h = 0; h < 2; h++) {
+    vbm_v32 x, xh;
+    __builtin_memcpy(&x, p + 32 * h, 32);
+    xh = (vbm_v32)((vbm_w16)x >> 4);
+    vbm_v32 c = (vbm_v32)__builtin_ia32_pshufb256(lo, x & nib) & (vbm_v32)__builtin_ia32_pshufb256(hi, xh & nib);
+    uint32_t e0 = (uint32_t)__builtin_ia32_pmovmskb256((c & m0) == z), e1 = (uint32_t)__builtin_ia32_pmovmskb256((c & m1) == z);
+    uint32_t e2 = (uint32_t)__builtin_ia32_pmovmskb256((c & m2) == z), e3 = (uint32_t)__builtin_ia32_pmovmskb256((c & m3) == z);
+    r0 |= (uint64_t)(uint32_t)~e0 << (32 * h); r1 |= (uint64_t)(uint32_t)~e1 << (32 * h); r2 |= (uint64_t)(uint32_t)~e2 << (32 * h); r3 |= (uint64_t)(uint32_t)~e3 << (32 * h);
+  }
+  w[0] = r0; w[1] = r1; w[2] = r2; w[3] = r3;
+}
+__attribute__((target("avx2"))) static __attribute__((noinline)) lean_obj_res vbm_simd_classify64_avx2_n(const uint8_t *p, size_t n, size_t i, const uint8_t *t, uint32_t ms, lean_obj_arg out) {
+  uint64_t w[4];
+  if (i < n && n - i >= 64) vbm_simd_class_words_avx2(p + i, t, ms, w); else vbm_simd_class_words_scalar(p, n, i, t, ms, w);
+  return vbm_simd_put4(out, w[0], w[1], w[2], w[3]);
+}
+static inline lean_obj_res vbm_simd_classify64(b_lean_obj_arg a, size_t i, b_lean_obj_arg tb, uint32_t ms, lean_obj_arg out) {
+  uint8_t pad[32] = {0};
+  const uint8_t *t = lean_sarray_cptr(tb);
+  size_t ts = lean_sarray_size(tb);
+  if (ts < 32) { for (size_t j = 0; j < ts; j++) pad[j] = t[j]; t = pad; }
+  return vbm_simd_classify64_avx2_n(lean_sarray_cptr(a), lean_sarray_size(a), i, t, ms, out);
+}
 #else
 static inline uint8_t vbm_simd_has_avx2(lean_obj_arg u) { (void)u; return 0; }
 static inline size_t vbm_simd_find_avx2(b_lean_obj_arg a, uint32_t s, size_t i) { return vbm_simd_find_scalar(lean_sarray_cptr(a), lean_sarray_size(a), i, s); }
 static inline uint64_t vbm_simd_inset64(b_lean_obj_arg a, size_t i, uint32_t s) { return vbm_simd_inset64_scalar(lean_sarray_cptr(a), lean_sarray_size(a), i, s); }
+static inline lean_obj_res vbm_simd_classify64(b_lean_obj_arg a, size_t i, b_lean_obj_arg tb, uint32_t ms, lean_obj_arg out) {
+  uint8_t pad[32] = {0};
+  const uint8_t *t = lean_sarray_cptr(tb);
+  size_t ts = lean_sarray_size(tb);
+  if (ts < 32) { for (size_t j = 0; j < ts; j++) pad[j] = t[j]; t = pad; }
+  uint64_t w[4];
+  vbm_simd_class_words_scalar(lean_sarray_cptr(a), lean_sarray_size(a), i, t, ms, w);
+  return vbm_simd_put4(out, w[0], w[1], w[2], w[3]);
+}
 #endif
 
 #endif

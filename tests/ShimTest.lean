@@ -3,6 +3,7 @@ import VbmSimd.Cursor
 import VbmSimd.Find
 import VbmSimd.Inset
 import VbmSimd.Append
+import VbmSimd.Classify
 /-! # tests/ShimTest.lean: the trusted C shims against their Lean models (Tier 1: `scripts/test-shims.sh`)
 
 Each primitive of `include/vbm_simd.h` (linked in through `lake build shim-test`, which compiles the generated C with `-include include/vbm_simd.h`) is called next to its Lean model on: every array size 0 to 41 with
@@ -24,6 +25,7 @@ structure St where
   avx : Nat := 0   -- how many of the comparisons were of the AVX2 search
   ins : Nat := 0   -- how many were of the AVX2 membership masks
   app : Nat := 0   -- how many were of the short append
+  cls : Nat := 0   -- how many were of the AVX2 class masks
 
 /-- The bytes of `a` now. An IO action, so the compiler can neither merge two snapshots of the same array nor move a snapshot across a store (`a.data` twice would be one value). -/
 @[noinline] def snap (a : ByteArray) : BaseIO (Array UInt8) := pure a.data
@@ -192,6 +194,73 @@ def appendRun (st : St) : IO St := do
             st := { st with app := st.app + 1 }
   return st
 
+/-- A fresh array of `n` pseudo-random bytes (not inlined: every call builds a new object, so it is unshared). -/
+@[noinline] def mkOut (s : UInt64) (n : Nat) : ByteArray := Id.run do
+  let mut s := s; let mut t := ByteArray.empty
+  for _ in [0:n] do s := next s; t := t.push (s >>> 24).toUInt8
+  return t
+
+/-- The same, a different function (so that the compiler cannot merge a call of it with one of `mkOut`: the model's argument and the shim's are two objects). -/
+@[noinline] def mkOutB (s : UInt64) (n : Nat) : ByteArray := mkOut s n
+
+/-- The nibble tables of the JSON classes (bit 0 quote, 1 backslash, 2 to 4 operators, 5 and 6 white space; the masks 0x01, 0x02, 0x1C, 0x60). -/
+def jsonTbl : ByteArray := ByteArray.mk #[0x40, 0, 0x01, 0, 0, 0, 0, 0, 0, 0x20, 0x28, 0x04, 0x12, 0x24, 0, 0,   0x20, 0, 0x51, 0x08, 0, 0x06, 0, 0x04, 0, 0, 0, 0, 0, 0, 0, 0]
+def classTables (s : UInt64) : UInt64 × List ByteArray :=
+  let (s1, r1) := mkArray s 32; let (s2, r2) := mkArray s1 32; let (s3, r3) := mkArray s2 32; let (s4, r4) := mkArray s3 20
+  (s4, [jsonTbl, ByteArray.mk (Array.replicate 32 0), ByteArray.mk (Array.replicate 32 0xFF), r1, r2, r3, r4, ByteArray.mk #[0xFF, 0xFF, 0xFF], ByteArray.empty])
+def classMasks : List UInt32 := [0x60_1C_02_01, 0xFFFFFFFF, 0, 0x80_40_20_10, 0x01_02_04_08, 0x0F_F0_AA_55]
+
+/-- One array, one table, one mask word, every start: the compiled `classify64` (the AVX2 body where the CPU has it) against the machine, into a fresh `out` of 32 bytes, and the same into a shared `out` (the original untouched). -/
+def checkClass (st : St) (a t : ByteArray) (ms : UInt32) (tag : String) : IO St := do
+  let mut st := st
+  for i in (List.range (a.size + 3)).map (·.toUSize) ++ [0xFFFFFFFF, 0x8000000000000000, 0xFFFFFFFFFFFFFFFF] do
+    let want := (classifyModel a i.toNat t ms (mkOutB st.s 32)).data
+    let r ← snap (classify64 a i t ms (mkOut st.s 32))
+    st ← check st "classify64" (r == want) s!"{tag} size {a.size} table {t.size} ms {ms} i {i}"
+    st := { st with cls := st.cls + 1 }
+  return st
+
+/-- The class-mask tests (only where the CPU has AVX2): every table and mask word; sizes 0 to 140 and the block boundaries; random contents, every byte value at the lane boundaries (for the JSON table), all bytes members; `out` of
+every size from 0 to 40 (a word is stored only where it fits) and shared. -/
+def classRun (st : St) : IO St := do
+  let mut st := st
+  -- on x86-64 the function is the AVX2 body (called only where the CPU has it); elsewhere it is the scalar loop
+  unless hasAvx2 () || !System.Platform.target.startsWith "x86_64" do return st
+  let (s', tbls) := classTables st.s
+  st := { st with s := s' }
+  let sizes := (List.range 141) ++ [191, 192, 193, 255, 256, 257, 1000]
+  for n in sizes do
+    for t in tbls do
+      for ms in classMasks do
+        let (s2, a) := mkArray st.s n
+        st := { st with s := s2 }
+        st ← checkClass st a t ms "random"
+  -- every byte value at the lane boundaries, the JSON table and masks
+  for v in [0:256] do
+    for n in [64, 65, 100, 130] do
+      for k in [0, 1, 15, 16, 17, 31, 32, 33, 62, 63, 64, 65, n - 1] do
+        if k < n then
+          let a := (ByteArray.mk (Array.replicate n 0x61)).set! k v.toUInt8
+          for i in [0, 1, k - 1, k, 37, 64] do
+            for ms in [0x60_1C_02_01, 0xFFFFFFFF] do
+              st ← check st "classify64 byte value" ((← snap (classify64 a i.toUSize jsonTbl ms (mkOut st.s 32))) == (classifyModel a i jsonTbl ms (mkOutB st.s 32)).data) s!"v {v} n {n} k {k} i {i}"
+              st := { st with cls := st.cls + 1 }
+  -- the destination: every size 0 to 40, unshared and shared
+  let (s3, a) := mkArray st.s 200
+  st := { st with s := s3 }
+  for on in [0:41] do
+    for i in [0, 1, 64, 100, 136, 137, 199, 200] do
+      let want := (classifyModel a i jsonTbl 0x60_1C_02_01 (mkOutB st.s on)).data
+      st ← check st "classify64 out size" ((← snap (classify64 a i.toUSize jsonTbl 0x60_1C_02_01 (mkOut st.s on))) == want) s!"out {on} i {i}"
+      let o := mkOut st.s on
+      let o0 ← snap o
+      let r ← snap (classify64 a i.toUSize jsonTbl 0x60_1C_02_01 o)
+      let o1 ← snap o
+      st ← check st "classify64 shared result" (r == want) s!"out {on} i {i}"
+      st ← check st "classify64 shared original untouched" (o1 == o0) s!"out {on} i {i}"
+      st := { st with cls := st.cls + 2 }
+  return st
+
 def run : IO UInt32 := do
   let mut st : St := { s := 0x9E3779B97F4A7C15 }
   let bigs : List USize := [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 15, 16, 17, 31, 32, 33, 40, 41, 42, 64, 1000, 0x7FFFFFFF, 0x80000000, 0xFFFFFFFF, 0x1FFFFFFFFFFFFFFF, 0x2000000000000000, 0x7FFFFFFFFFFFFFFF, 0x8000000000000000, 0xFFFFFFFFFFFFFFF0, 0xFFFFFFFFFFFFFFFF]
@@ -260,8 +329,9 @@ def run : IO UInt32 := do
   st ← findRun st
   st ← insetRun st
   st ← appendRun st
+  st ← classRun st
   if st.bad == 0 then
-    IO.println s!"shim-test: ok ({st.count} comparisons of the C shims against their Lean models; {st.avx} of them the AVX2 search; {st.ins} of them the AVX2 membership masks; {st.app} of them the short append)"
+    IO.println s!"shim-test: ok ({st.count} comparisons of the C shims against their Lean models; {st.avx} of them the AVX2 search; {st.ins} of them the AVX2 membership masks; {st.app} of them the short append; {st.cls} of them the AVX2 class masks)"
     return 0
   IO.eprintln s!"shim-test: FAILED ({st.bad} of {st.count})"
   return 1

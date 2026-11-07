@@ -8,4 +8,5 @@ import VbmSimd.Bytes
 import VbmSimd.Find
 import VbmSimd.Inset
 import VbmSimd.Append
+import VbmSimd.Classify
 /-! # vbm-simd: verified bit-parallel kernels (imports `Init` only). See `README.md`, `docs/SPEC.md`. -/

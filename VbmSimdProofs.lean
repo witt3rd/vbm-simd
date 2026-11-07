@@ -10,4 +10,5 @@ import VbmSimdProofs.Bytes
 import VbmSimdProofs.Find
 import VbmSimdProofs.Inset
 import VbmSimdProofs.Append
+import VbmSimdProofs.Classify
 /-! # vbm-simd proofs (may import `Std` and `Lean`; never linked). See `docs/SPEC.md` for the clauses these discharge. -/
