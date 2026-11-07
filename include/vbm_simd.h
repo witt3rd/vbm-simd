@@ -62,7 +62,8 @@ static inline uint64_t vbm_simd_ctz(uint64_t x) { return x ? (uint64_t)__builtin
 
 /* ---- T13: append a short run of bytes (VS-13): `vbm_simd_append`, the C body of `appendBytes` (VbmSimd/Append.lean). The model is the runtime's `copySlice` at the end of the destination: the result is the same value either way.
  * The fast path needs: n <= 32, the run inside `a` (i + n <= its size), room in `t` (size + n <= its capacity) and `t` unshared; it moves the n bytes with two loads and two stores that overlap (reading only a[i, i + n),
- * writing only t[size, size + n)) and sets the new size. Anything else is the runtime's lean_byte_array_copy_slice, which cuts a run at the end of `a`, grows `t` and copies it when it is shared. */
+ * writing only t[size, size + n)) and sets the new size. Anything else is the runtime's lean_byte_array_copy_slice, which cuts a run at the end of `a`, grows `t` and copies it when it is shared.
+ * The call is not inlined (`noinline`): in a consumer's parse loop, which uses it at several sites, the inlined body measured slower than a call (code size and register pressure of the loop). */
 static inline int vbm_simd_append_fits(size_t ts, size_t tc, size_t as, size_t i, size_t n) {
   return n <= 32 && ts <= tc && n <= tc - ts && i <= as && n <= as - i;
 }
@@ -78,7 +79,7 @@ static inline void vbm_simd_move_short(uint8_t *d, const uint8_t *s, size_t n) {
   else if (n == 1) d[0] = s[0];
 }
 extern lean_obj_res lean_byte_array_copy_slice(b_lean_obj_arg, lean_obj_arg, lean_obj_arg, lean_obj_arg, lean_obj_arg, uint8_t);   /* the runtime's (lean.h does not declare it; the generated C does, with the same type) */
-static inline lean_obj_res vbm_simd_append(lean_obj_arg t, b_lean_obj_arg a, size_t i, size_t n) {
+static inline __attribute__((noinline)) lean_obj_res vbm_simd_append(lean_obj_arg t, b_lean_obj_arg a, size_t i, size_t n) {
   size_t ts = lean_sarray_size(t);
   if (vbm_simd_append_fits(ts, lean_sarray_capacity(t), lean_sarray_size(a), i, n) && lean_is_exclusive(t)) {
     vbm_simd_move_short(lean_sarray_cptr(t) + ts, lean_sarray_cptr(a) + i, n);
