@@ -61,13 +61,18 @@ static inline lean_obj_res vbm_simd_st32(lean_obj_arg out, size_t k, uint32_t w)
 static inline uint64_t vbm_simd_ctz(uint64_t x) { return x ? (uint64_t)__builtin_ctzll(x) : 64; }
 
 /* ---- T13: append a short run of bytes (VS-13): `vbm_simd_append`, the C body of `appendBytes` (VbmSimd/Append.lean). The model is the runtime's `copySlice` at the end of the destination: the result is the same value either way.
- * The fast path needs: n <= 16, the run inside `a` (i + n <= its size), room in `t` (size + n <= its capacity) and `t` unshared; it moves the n bytes with two loads and two stores that overlap (reading only a[i, i + n),
+ * The fast path needs: n <= 32, the run inside `a` (i + n <= its size), room in `t` (size + n <= its capacity) and `t` unshared; it moves the n bytes with two loads and two stores that overlap (reading only a[i, i + n),
  * writing only t[size, size + n)) and sets the new size. Anything else is the runtime's lean_byte_array_copy_slice, which cuts a run at the end of `a`, grows `t` and copies it when it is shared. */
 static inline int vbm_simd_append_fits(size_t ts, size_t tc, size_t as, size_t i, size_t n) {
-  return n <= 16 && ts <= tc && n <= tc - ts && i <= as && n <= as - i;
+  return n <= 32 && ts <= tc && n <= tc - ts && i <= as && n <= as - i;
 }
-static inline void vbm_simd_move_short(uint8_t *d, const uint8_t *s, size_t n) {   /* n <= 16: reads s[0, n), writes d[0, n) */
-  if (n >= 8) { uint64_t x, y; __builtin_memcpy(&x, s, 8); __builtin_memcpy(&y, s + n - 8, 8); __builtin_memcpy(d, &x, 8); __builtin_memcpy(d + n - 8, &y, 8); }
+static inline void vbm_simd_move_short(uint8_t *d, const uint8_t *s, size_t n) {   /* n <= 32: reads s[0, n), writes d[0, n) */
+  if (n >= 16) {
+    uint64_t x0, x1, y0, y1;
+    __builtin_memcpy(&x0, s, 8); __builtin_memcpy(&x1, s + 8, 8); __builtin_memcpy(&y0, s + n - 16, 8); __builtin_memcpy(&y1, s + n - 8, 8);
+    __builtin_memcpy(d, &x0, 8); __builtin_memcpy(d + 8, &x1, 8); __builtin_memcpy(d + n - 16, &y0, 8); __builtin_memcpy(d + n - 8, &y1, 8);
+  }
+  else if (n >= 8) { uint64_t x, y; __builtin_memcpy(&x, s, 8); __builtin_memcpy(&y, s + n - 8, 8); __builtin_memcpy(d, &x, 8); __builtin_memcpy(d + n - 8, &y, 8); }
   else if (n >= 4) { uint32_t x, y; __builtin_memcpy(&x, s, 4); __builtin_memcpy(&y, s + n - 4, 4); __builtin_memcpy(d, &x, 4); __builtin_memcpy(d + n - 4, &y, 4); }
   else if (n >= 2) { uint16_t x, y; __builtin_memcpy(&x, s, 2); __builtin_memcpy(&y, s + n - 2, 2); __builtin_memcpy(d, &x, 2); __builtin_memcpy(d + n - 2, &y, 2); }
   else if (n == 1) d[0] = s[0];

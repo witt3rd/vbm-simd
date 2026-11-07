@@ -3,7 +3,7 @@ import VbmSimd.Shims
 
 `appendBytes t a i n` is `ByteArray.copySlice` with the destination offset at the end of `t`: the bytes `a[i, i + n)` (as many as `a` has) appended to `t`. The Lean runtime does it by a call that checks the
 array's exclusiveness and capacity, then calls `memcpy`; for a short run (a number's lexeme, a string without escapes) that call is most of the cost. The compiled code runs `vbm_simd_append`
-(`include/vbm_simd.h`, trust ledger T13): for at most 16 bytes, an unshared `t` with room and a run inside `a`, two overlapping 8-byte (or 4-, 2-, 1-byte) moves and a size update; the runtime's own `copySlice` otherwise.
+(`include/vbm_simd.h`, trust ledger T13): for at most 32 bytes, an unshared `t` with room and a run inside `a`, two overlapping moves (16, 8, 4, 2 or 1 bytes at each end) and a size update; the runtime's own `copySlice` otherwise.
 The Lean body is the model (`copySlice`: the result is the same value whichever way it is computed), and `appendBytes_spec` (`VbmSimdProofs/Append.lean`) says what that value is. -/
 namespace VbmSimd
 

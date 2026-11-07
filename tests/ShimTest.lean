@@ -165,16 +165,16 @@ def insetRun (st : St) : IO St := do
 def appendModel (t a : ByteArray) (i n : USize) : Array UInt8 := t.data ++ a.data.extract i.toNat (i.toNat + n.toNat)
 
 /-- The short append: the compiled `appendBytes` (the C shim) against the model, on an unshared destination (a fresh array each time) and on a shared one (the original must be untouched), for every combination of a prefix, spare
-capacity (none, a little, enough, more than enough), source size, start (through the end and far past it) and length (0 to 20, around 16, huge). -/
+capacity (none, a little, enough, more than enough), source size, start (through the end and far past it) and length (0 to 20, around 16 and 32, huge). -/
 def appendRun (st : St) : IO St := do
   let mut st := st
-  let lens : List USize := (List.range 21).map (·.toUSize) ++ [24, 31, 32, 33, 100, 0x7FFFFFFF, 0x8000000000000000, 0xFFFFFFFFFFFFFFFF]
-  for asz in [0, 1, 2, 7, 8, 9, 15, 16, 17, 20, 33] do
+  let lens : List USize := (List.range 36).map (·.toUSize) ++ [40, 100, 0x7FFFFFFF, 0x8000000000000000, 0xFFFFFFFFFFFFFFFF]
+  for asz in [0, 1, 2, 7, 8, 9, 15, 16, 17, 20, 33, 40] do
     let (s', a) := mkArray st.s asz
     st := { st with s := s' }
     let starts : List USize := (List.range (asz + 3)).map (·.toUSize) ++ [0xFFFFFFFF, 0xFFFFFFFFFFFFFFFF]
     for p in [0, 1, 5, 16, 17, 40] do
-      for e in [0, 3, 16, 17, 40] do
+      for e in [0, 3, 16, 17, 33, 40] do
         for i in starts do
           for n in lens do
             let want := appendModel (mkRoom st.s p e) a i n

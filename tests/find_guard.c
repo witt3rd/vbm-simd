@@ -59,7 +59,7 @@ int main(void) {
           }
         }
       }
-  /* The short append (T13). (1) the predicate that decides the fast path, against the plain statement of it in 128-bit arithmetic, on small values and at the edges of size_t; (2) the moves of 0 to 16 bytes on buffers
+  /* The short append (T13). (1) the predicate that decides the fast path, against the plain statement of it in 128-bit arithmetic, on small values and at the edges of size_t; (2) the moves of 0 to 32 bytes on buffers
    * that touch the guard pages (source and destination each flush against the end, or the start, of its page: any byte read or written outside [0, n) is a SIGSEGV) and, in the middle of a page, between sentinels that must
    * not change. */
   {
@@ -67,25 +67,25 @@ int main(void) {
     const size_t nv = sizeof vals / sizeof vals[0];
     for (size_t a = 0; a < nv; a++) for (size_t b = 0; b < nv; b++) for (size_t c = 0; c < nv; c++) for (size_t d = 0; d < nv; d++) for (size_t e = 0; e < nv; e++) {
       size_t ts = vals[a], tc = vals[b], as = vals[c], i = vals[d], n = vals[e];
-      int want = n <= 16 && (unsigned __int128)ts <= tc && (unsigned __int128)ts + n <= tc && (unsigned __int128)i <= as && (unsigned __int128)i + n <= as;
+      int want = n <= 32 && (unsigned __int128)ts <= tc && (unsigned __int128)ts + n <= tc && (unsigned __int128)i <= as && (unsigned __int128)i + n <= as;
       count++;
       if (vbm_simd_append_fits(ts, tc, as, i, n) != want) { bad++; dprintf(2, "find-guard: append fits ts=%zu tc=%zu as=%zu i=%zu n=%zu\n", ts, tc, as, i, n); }
     }
     uint8_t *m2 = mmap(0, 3 * pg, PROT_RW, MAP_PRIVATE_ANON, -1, 0);
     if (m2 == (void *)-1 || mprotect(m2, pg, PROT_NONE) || mprotect(m2 + 2 * pg, pg, PROT_NONE)) { dprintf(2, "find-guard: cannot set up the guard pages\n"); return 2; }
     uint8_t *mid2 = m2 + pg;
-    for (int sf = 0; sf < 2; sf++) for (int df = 0; df < 3; df++) for (size_t n = 0; n <= 16; n++) {
+    for (int sf = 0; sf < 2; sf++) for (int df = 0; df < 3; df++) for (size_t n = 0; n <= 32; n++) {
       uint8_t *src = sf ? mid + pg - n : mid;                                  /* flush against the end of its page, or its start */
       uint8_t *dst = df == 0 ? mid2 + pg - n : df == 1 ? mid2 : mid2 + 1024;   /* the same; or in the middle of a page, between sentinels */
       for (size_t j = 0; j < n; j++) src[j] = (uint8_t)(0x30 + j * 11);
-      if (df == 2) for (long j = -16; j < 48; j++) dst[j] = 0xEE;
+      if (df == 2) for (long j = -16; j < 64; j++) dst[j] = 0xEE;
       else for (size_t j = 0; j < n; j++) dst[j] = 0xEE;
       vbm_simd_move_short(dst, src, n);
       count++;
       for (size_t j = 0; j < n; j++) if (dst[j] != src[j]) { bad++; dprintf(2, "find-guard: move_short n=%zu byte %zu\n", n, j); break; }
       if (df == 2) {
         for (long j = -16; j < 0; j++) if (dst[j] != 0xEE) { bad++; dprintf(2, "find-guard: move_short wrote before n=%zu at %ld\n", n, j); break; }
-        for (long j = (long)n; j < 48; j++) if (dst[j] != 0xEE) { bad++; dprintf(2, "find-guard: move_short wrote past n=%zu at %ld\n", n, j); break; }
+        for (long j = (long)n; j < 64; j++) if (dst[j] != 0xEE) { bad++; dprintf(2, "find-guard: move_short wrote past n=%zu at %ld\n", n, j); break; }
       }
     }
   }
