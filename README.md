@@ -2,7 +2,7 @@
 
 Bit-parallel kernels for scanning text, **proved correct in Lean 4** against one-bit-at-a-time machines, and the very small amount of trusted C needed to run them at hardware speed.
 
-> **Status: pre-release (early).** Unscored: it is not in the [VBM registry](https://github.com/witt3rd/vbm) yet, so there is no score card to link; what is proved and what is trusted is below. Six kernels are proved (prefix xor, escape carry, byte-lane compare, lane-flag packing, a 64-byte block mask, a cursor over the set bits of a mask array); four trusted C primitives are modelled and tested. Nothing is published to any package registry; build from source. The API will change.
+> **Status: pre-release (early).** Unscored: it is not in the [VBM registry](https://github.com/witt3rd/vbm) yet, so there is no score card to link; what is proved and what is trusted is below. Thirteen clauses are proved or modelled (VS-1 to VS-13, the eight kernel ones in the table below plus the shim models of `ld64`, `st64`, `st32`, `ctz`, the byte search, the 64-byte membership mask and the short append); every trusted primitive is tested against its model. Nothing is published to any package registry; build from source. The API will change.
 
 ## Why it exists
 
@@ -27,7 +27,7 @@ Lean models and differential tests, each with its own entry in a ledger. It is t
 | `VS-9` | `n` zero bytes | `zeroBytes` (the array a scanner stores its masks into; built by doubling) | `zeroBytes_spec` |
 | `VS-10` | the first set bit at or after a position | `nextSet` (a masked word and `ctz`; stateless) | `nextSet_spec` |
 
-**The trusted C** is one header, [`include/vbm_simd.h`](include/vbm_simd.h): `ld64`, `st64`, `st32`, `ctz`, each a few lines, each with a Lean model (`VbmSimd/Shims.lean`) that is its specification, tested against the model on boundary and random cases and against deliberate mutants of the header (`scripts/test-shims.sh`). They are total: no call touches memory outside its array.
+**The trusted C** is one header, [`include/vbm_simd.h`](include/vbm_simd.h): four primitives (`ld64`, `st64`, `st32`, `ctz`, each a few lines, each with a Lean model in `VbmSimd/Shims.lean` that is its specification) and the AVX2 and short-append bodies of later clauses, tested against the model on boundary and random cases and against deliberate mutants of the header (`scripts/test-shims.sh`). They are total: no call touches memory outside its array.
 
 The statements are about `UInt64` code, the code the Lean compiler turns into C, not about a model of it. Only the three standard axioms are used (checked by `scripts/AxiomGate.lean` on every run). [`docs/SPEC.md`](docs/SPEC.md) lists the clauses; [`docs/method.md`](docs/method.md) explains the proof pattern, which is the reusable part:
 a carry chain is a sequential machine in disguise, so the proof is an induction over the bit index with an invariant relating the carry to the machine's state, whose step is a `decide` over a handful of Booleans.
@@ -43,7 +43,7 @@ and coding agents wrote it under mechanical gates (forbidden constructs, the axi
 
 ```sh
 mise install                     # the pinned Lean release (mise.toml), no elan
-mise exec -- lake build          # the library and the proofs, zero warnings
+mise exec -- lake build VbmSimd VbmSimdProofs   # both libraries, zero warnings (`lake build` alone builds the library only)
 mise exec -- scripts/tier1.sh    # the whole check: build, shim tests, axiom gate, spec clauses, trust ledger
 mise exec -- scripts/tier2.sh    # the slow checks: leanchecker --fresh and the independent checker nanoda
 ```
@@ -59,7 +59,7 @@ lean_lib MyLib where
   moreLeancArgs := #["-include", (__dir__ / ".lake" / "packages" / "vbm-simd" / "include" / "vbm_simd.h").toString]
 ```
 
-Your library may import `VbmSimd.*` (it brings `Init` only); a freestanding build must also provide `lean_copy_sarray` (the stores copy a shared array). The proofs are `VbmSimdProofs.*` (a separate library: build it with `lake build @vbm-simd/VbmSimdProofs` when your proofs import it).
+Your library may import `VbmSimd.*` (it brings `Init` only); a freestanding build must also provide the Lean runtime's array copy (`lean_copy_sarray`; the stores reach it as `lean_copy_sarray_nonlinear` when the array they write is shared). The proofs are `VbmSimdProofs.*`, a separate library that this package does not build by default (build it from your own tree with `lake build VbmSimdProofs` when your proofs import it).
 
 ## Contributing
 
