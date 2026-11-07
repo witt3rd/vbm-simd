@@ -7,4 +7,5 @@ import VbmSimd.Cursor
 import VbmSimd.Bytes
 import VbmSimd.Find
 import VbmSimd.Inset
+import VbmSimd.Append
 /-! # vbm-simd: verified bit-parallel kernels (imports `Init` only). See `README.md`, `docs/SPEC.md`. -/

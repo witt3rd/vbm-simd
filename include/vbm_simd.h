@@ -1,4 +1,4 @@
-/* include/vbm_simd.h: the trusted C of vbm-simd (docs/trust-ledger.md, T10 and T11). Four `static inline` primitives (T10), then the AVX2 byte search and its CPU test (T11), each the C body of an `@[extern]` function of
+/* include/vbm_simd.h: the trusted C of vbm-simd (docs/trust-ledger.md, T10, T11, T12 and T13). Four `static inline` primitives (T10), then the AVX2 byte search and its CPU test (T11), each the C body of an `@[extern]` function of
  * VbmSimd/Shims.lean or VbmSimd/Find.lean whose Lean body is its specification (the model). Include it first in every C file generated from Lean code that calls them
  * (`cc -include include/vbm_simd.h`): Lean then emits only an `extern` prototype after it, which a later declaration of a static function does not conflict with.
  * Every function is total: an access past the end of the array is defined (reads zero, writes nothing there), exactly as the model says; none can touch memory outside the array.
@@ -59,6 +59,29 @@ static inline lean_obj_res vbm_simd_st32(lean_obj_arg out, size_t k, uint32_t w)
 
 /* ctz: the number of trailing zero bits of x; 64 for x = 0. */
 static inline uint64_t vbm_simd_ctz(uint64_t x) { return x ? (uint64_t)__builtin_ctzll(x) : 64; }
+
+/* ---- T13: append a short run of bytes (VS-13): `vbm_simd_append`, the C body of `appendBytes` (VbmSimd/Append.lean). The model is the runtime's `copySlice` at the end of the destination: the result is the same value either way.
+ * The fast path needs: n <= 16, the run inside `a` (i + n <= its size), room in `t` (size + n <= its capacity) and `t` unshared; it moves the n bytes with two loads and two stores that overlap (reading only a[i, i + n),
+ * writing only t[size, size + n)) and sets the new size. Anything else is the runtime's lean_byte_array_copy_slice, which cuts a run at the end of `a`, grows `t` and copies it when it is shared. */
+static inline int vbm_simd_append_fits(size_t ts, size_t tc, size_t as, size_t i, size_t n) {
+  return n <= 16 && ts <= tc && n <= tc - ts && i <= as && n <= as - i;
+}
+static inline void vbm_simd_move_short(uint8_t *d, const uint8_t *s, size_t n) {   /* n <= 16: reads s[0, n), writes d[0, n) */
+  if (n >= 8) { uint64_t x, y; __builtin_memcpy(&x, s, 8); __builtin_memcpy(&y, s + n - 8, 8); __builtin_memcpy(d, &x, 8); __builtin_memcpy(d + n - 8, &y, 8); }
+  else if (n >= 4) { uint32_t x, y; __builtin_memcpy(&x, s, 4); __builtin_memcpy(&y, s + n - 4, 4); __builtin_memcpy(d, &x, 4); __builtin_memcpy(d + n - 4, &y, 4); }
+  else if (n >= 2) { uint16_t x, y; __builtin_memcpy(&x, s, 2); __builtin_memcpy(&y, s + n - 2, 2); __builtin_memcpy(d, &x, 2); __builtin_memcpy(d + n - 2, &y, 2); }
+  else if (n == 1) d[0] = s[0];
+}
+extern lean_obj_res lean_byte_array_copy_slice(b_lean_obj_arg, lean_obj_arg, lean_obj_arg, lean_obj_arg, lean_obj_arg, uint8_t);   /* the runtime's (lean.h does not declare it; the generated C does, with the same type) */
+static inline lean_obj_res vbm_simd_append(lean_obj_arg t, b_lean_obj_arg a, size_t i, size_t n) {
+  size_t ts = lean_sarray_size(t);
+  if (vbm_simd_append_fits(ts, lean_sarray_capacity(t), lean_sarray_size(a), i, n) && lean_is_exclusive(t)) {
+    vbm_simd_move_short(lean_sarray_cptr(t) + ts, lean_sarray_cptr(a) + i, n);
+    lean_sarray_set_size(t, ts + n);
+    return t;
+  }
+  return lean_byte_array_copy_slice(a, lean_usize_to_nat(i), t, lean_usize_to_nat(ts), lean_usize_to_nat(n), 0);
+}
 
 /* ---- T11: find the first byte of a set (VS-11): the AVX2 search `vbm_simd_find_avx2` and the CPU test `vbm_simd_has_avx2`. The set `s` is up to four bytes packed in a word (byte k = member k).
  * The result is the index of the first byte of `a` at or after `i` that is a member, `n` (the size) when there is none or `i >= n`: the Lean body `findSpec` is the model. Total: it never reads outside [0, n).

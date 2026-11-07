@@ -2,6 +2,7 @@ import VbmSimd.Shims
 import VbmSimd.Cursor
 import VbmSimd.Find
 import VbmSimd.Inset
+import VbmSimd.Append
 /-! # tests/ShimTest.lean: the trusted C shims against their Lean models (Tier 1: `scripts/test-shims.sh`)
 
 Each primitive of `include/vbm_simd.h` (linked in through `lake build shim-test`, which compiles the generated C with `-include include/vbm_simd.h`) is called next to its Lean model on: every array size 0 to 41 with
@@ -22,6 +23,7 @@ structure St where
   count : Nat := 0
   avx : Nat := 0   -- how many of the comparisons were of the AVX2 search
   ins : Nat := 0   -- how many were of the AVX2 membership masks
+  app : Nat := 0   -- how many were of the short append
 
 /-- The bytes of `a` now. An IO action, so the compiler can neither merge two snapshots of the same array nor move a snapshot across a store (`a.data` twice would be one value). -/
 @[noinline] def snap (a : ByteArray) : BaseIO (Array UInt8) := pure a.data
@@ -153,6 +155,43 @@ def insetRun (st : St) : IO St := do
               st := { st with ins := st.ins + 1 }
   return st
 
+/-- A fresh array of `p` bytes with room for `p + e` (so that the exclusive fast path of `appendBytes` is taken when there is room, and the runtime's when there is none). Not inlined: every call builds a new object. -/
+@[noinline] def mkRoom (s : UInt64) (p e : Nat) : ByteArray := Id.run do
+  let mut s := s; let mut t := ByteArray.emptyWithCapacity (p + e)
+  for _ in [0:p] do s := next s; t := t.push (s >>> 24).toUInt8
+  return t
+
+/-- The model of `appendBytes` as plain arrays (`[VS-13]`: `t` followed by `a[i, i + n)`, cut at the end of `a`). -/
+def appendModel (t a : ByteArray) (i n : USize) : Array UInt8 := t.data ++ a.data.extract i.toNat (i.toNat + n.toNat)
+
+/-- The short append: the compiled `appendBytes` (the C shim) against the model, on an unshared destination (a fresh array each time) and on a shared one (the original must be untouched), for every combination of a prefix, spare
+capacity (none, a little, enough, more than enough), source size, start (through the end and far past it) and length (0 to 20, around 16, huge). -/
+def appendRun (st : St) : IO St := do
+  let mut st := st
+  let lens : List USize := (List.range 21).map (·.toUSize) ++ [24, 31, 32, 33, 100, 0x7FFFFFFF, 0x8000000000000000, 0xFFFFFFFFFFFFFFFF]
+  for asz in [0, 1, 2, 7, 8, 9, 15, 16, 17, 20, 33] do
+    let (s', a) := mkArray st.s asz
+    st := { st with s := s' }
+    let starts : List USize := (List.range (asz + 3)).map (·.toUSize) ++ [0xFFFFFFFF, 0xFFFFFFFFFFFFFFFF]
+    for p in [0, 1, 5, 16, 17, 40] do
+      for e in [0, 3, 16, 17, 40] do
+        for i in starts do
+          for n in lens do
+            let want := appendModel (mkRoom st.s p e) a i n
+            let r := appendBytes (mkRoom st.s p e) a i n
+            let rd ← snap r
+            st ← check st "appendBytes" (rd == want) s!"asz {asz} prefix {p} room {e} i {i} n {n}"
+            -- shared: the destination is still used afterwards
+            let t := mkRoom st.s p e
+            let t0 ← snap t
+            let r2 := appendBytes t a i n
+            let r2d ← snap r2
+            let t1 ← snap t
+            st ← check st "appendBytes shared result" (r2d == want) s!"asz {asz} prefix {p} room {e} i {i} n {n}"
+            st ← check st "appendBytes shared original untouched" (t1 == t0) s!"asz {asz} prefix {p} room {e} i {i} n {n}"
+            st := { st with app := st.app + 1 }
+  return st
+
 def run : IO UInt32 := do
   let mut st : St := { s := 0x9E3779B97F4A7C15 }
   let bigs : List USize := [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 15, 16, 17, 31, 32, 33, 40, 41, 42, 64, 1000, 0x7FFFFFFF, 0x80000000, 0xFFFFFFFF, 0x1FFFFFFFFFFFFFFF, 0x2000000000000000, 0x7FFFFFFFFFFFFFFF, 0x8000000000000000, 0xFFFFFFFFFFFFFFF0, 0xFFFFFFFFFFFFFFFF]
@@ -220,8 +259,9 @@ def run : IO UInt32 := do
         st ← check st "nextSet" (VbmSimd.nextSet b j == expect) s!"size {n} density {density} j {j}"
   st ← findRun st
   st ← insetRun st
+  st ← appendRun st
   if st.bad == 0 then
-    IO.println s!"shim-test: ok ({st.count} comparisons of the C shims against their Lean models; {st.avx} of them the AVX2 search; {st.ins} of them the AVX2 membership masks)"
+    IO.println s!"shim-test: ok ({st.count} comparisons of the C shims against their Lean models; {st.avx} of them the AVX2 search; {st.ins} of them the AVX2 membership masks; {st.app} of them the short append)"
     return 0
   IO.eprintln s!"shim-test: FAILED ({st.bad} of {st.count})"
   return 1

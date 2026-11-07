@@ -59,9 +59,20 @@ mutants=(
   "inset-tail-load|s|vbm_simd_members64(p + n - 64, s)|vbm_simd_members64(p + i, s)|"
   "inset-short-array|s|if (n < 64) return vbm_simd_inset64_scalar(p, n, i, s);||"
   "inset-scalar-start|s|j < 64 \&\& j < n - i|j < 64 \&\& j < n|"
+  # the short append (T13): no check for room in the destination, no check that the run is inside the source, a longer limit than the moves cover, a wrong offset of the second store (a write past the run), of the second load, a move
+  # of seven bytes as eight (a read before the run), an append into a shared array, a size one too large, a size not updated
+  "append-room|s| \&\& n <= tc - ts||"
+  "append-source|s| \&\& n <= as - i;|;|"
+  "append-limit|s|return n <= 16 \&\&|return n <= 17 \&\&|"
+  "append-store-tail|s|__builtin_memcpy(d + n - 8, \&y, 8)|__builtin_memcpy(d + n - 7, \&y, 8)|"
+  "append-load-tail|s|__builtin_memcpy(\&y, s + n - 4, 4)|__builtin_memcpy(\&y, s + n - 3, 4)|"
+  "append-seven|s|if (n >= 8) { uint64_t x, y;|if (n >= 7) { uint64_t x, y;|"
+  "append-shared|s| \&\& lean_is_exclusive(t))|)|"
+  "append-size-plus|s|lean_sarray_set_size(t, ts + n)|lean_sarray_set_size(t, ts + n + 1)|"
+  "append-no-size|/lean_sarray_set_size(t, ts + n);/d"
 )
 # The AVX2 body (find-overread .. find-index, inset-overread .. inset-short-array) exists only on x86-64 (#if __x86_64__ in the header): on any other machine those mutants edit code that is not compiled, so they are not run there (the x86-64 job runs them).
-if [ "$(uname -m)" != x86_64 ]; then kept=(); for m in "${mutants[@]}"; do case ${m%%|*} in find-scalar-*|inset-scalar-*|ld64-*|st64-*|st32-*|ctz-*) kept+=("$m");; esac; done; mutants=("${kept[@]}"); fi
+if [ "$(uname -m)" != x86_64 ]; then kept=(); for m in "${mutants[@]}"; do case ${m%%|*} in find-scalar-*|inset-scalar-*|append-*|ld64-*|st64-*|st32-*|ctz-*) kept+=("$m");; esac; done; mutants=("${kept[@]}"); fi
 run_mutant() {
   local name=${1%%|*} expr=${1#*|}; local d=$T/$name
   mkdir -p "$d"; cp -r include tests lakefile.lean lean-toolchain VbmSimd VbmSimd.lean "$d"/ 2>/dev/null; cp -r .lake "$d"/.lake; rm -rf "$d"/.lake/config "$d"/.lake/lakefile.olean* "$d"/.lake/lakefile.olean.* 2>/dev/null || true   # the configured lakefile bakes in the header path (__dir__): reconfigure in the copy

@@ -9,4 +9,5 @@ import VbmSimdProofs.Mask
 import VbmSimdProofs.Bytes
 import VbmSimdProofs.Find
 import VbmSimdProofs.Inset
+import VbmSimdProofs.Append
 /-! # vbm-simd proofs (may import `Std` and `Lean`; never linked). See `docs/SPEC.md` for the clauses these discharge. -/
