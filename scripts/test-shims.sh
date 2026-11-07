@@ -136,6 +136,7 @@ run_mutant() {
   leanc -O2 -I "$d/include" "$d/tests/find_guard.c" -o "$d/find_guard" 2>"$d/build.err" || { echo "test-shims: mutant $name does not build (guard test): $(tail -3 "$d/build.err")" >&2; return 2; }
   # caught = the Lean shim test fails or the guard test fails (a crash on a guard page included), both under run-probe (no core, no crash record); exit 2 is run-probe refusing, not a catch
   local rc=0
+  export SHIM_TEST_NO_BENCH=1   # a mutant run needs the comparisons only, not the bench
   ( cd "$d" && "$probe" .lake/build/bin/shim-test >/dev/null 2>&1 ) || rc=$?
   [ "$rc" != 2 ] || { echo "test-shims: mutant $name: run-probe refused" >&2; return 2; }
   if [ "$rc" = 0 ]; then ( cd "$d" && "$probe" ./find_guard >/dev/null 2>&1 ) || rc=$?; [ "$rc" != 2 ] || { echo "test-shims: mutant $name: run-probe refused" >&2; return 2; }; fi

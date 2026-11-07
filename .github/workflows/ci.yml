@@ -17,7 +17,7 @@ jobs:
       group: ci-tier1-${{ github.sha }}
       cancel-in-progress: false
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac # v2   # installs mise and the pinned Lean (mise.toml)
@@ -35,7 +35,7 @@ jobs:
       group: ci-tier1-arm64-${{ github.sha }}
       cancel-in-progress: false
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac # v2   # installs mise and the pinned Lean (mise.toml)

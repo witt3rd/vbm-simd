@@ -8,7 +8,7 @@ import VbmSimd.Classify
 
 Each primitive of `include/vbm_simd.h` (linked in through `lake build shim-test`, which compiles the generated C with `-include include/vbm_simd.h`) is called next to its Lean model on: every array size 0 to 41 with
 indices through, at and far past the end (including the largest `USize`), random contents; every single-bit and a few hundred random words; the empty array; a shared array (the shim must copy, never write
-the original). A mismatch prints the case and exits 1. The checks cannot be bypassed: they compare the arrays' bytes, not a hash. -/
+the original). A mismatch prints the case and exits 1 at once. The checks cannot be bypassed: they compare the arrays' bytes, not a hash. -/
 open VbmSimd
 
 def next (s : UInt64) : UInt64 := let s := s ^^^ (s <<< 13); let s := s ^^^ (s >>> 7); s ^^^ (s <<< 17)
@@ -41,7 +41,8 @@ def St.addCls (st : St) (k : Nat := 1) : St := if hasAvx2 () then { st with cls 
 def check (st : St) (name : String) (ok : Bool) (detail : String) : IO St := do
   if ok then return { st with count := st.count + 1 }
   IO.eprintln s!"shim-test: MISMATCH {name}: {detail}"
-  return { st with bad := st.bad + 1, count := st.count + 1 }
+  IO.eprintln s!"shim-test: FAILED (after {st.count + 1} comparisons; the first mismatch ends the run)"
+  IO.Process.exit 1
 
 /-- All the set positions of `masks` by walking the cursor (the compiled code, with the shims). -/
 partial def walk (masks : ByteArray) (w : Nat) (m : UInt64) (acc : Array Nat) : Array Nat :=
@@ -353,6 +354,7 @@ def mbps (passes ns : Nat) : Nat := if ns == 0 then 0 else benchBytes * passes *
 
 def benchRun : IO Unit := do
   unless hasAvx2 () || hasNeon () do return
+  if (← IO.getEnv "SHIM_TEST_NO_BENCH").isSome then return   -- the mutant runs of scripts/test-shims.sh: only the comparisons matter
   let isa := if hasNeon () then "NEON" else "AVX2"
   let load := ((← IO.FS.readFile "/proc/loadavg").splitOn " ").headD "?"
   IO.println s!"bench (load {load}, {System.Platform.target}): one MiB, best of three, MB/s; vector = {isa}"
