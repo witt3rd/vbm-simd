@@ -26,6 +26,14 @@ structure St where
   ins : Nat := 0   -- how many were of the AVX2 membership masks
   app : Nat := 0   -- how many were of the short append
   cls : Nat := 0   -- how many were of the AVX2 class masks
+  nfind : Nat := 0 -- how many were of the NEON search
+  nins : Nat := 0  -- how many were of the NEON membership masks
+  ncls : Nat := 0  -- how many were of the NEON class masks
+
+/-- Count `k` comparisons of the membership masks, for the vector body this build runs (AVX2 on a CPU that has it, NEON on aarch64). -/
+def St.addIns (st : St) (k : Nat := 1) : St := if hasAvx2 () then { st with ins := st.ins + k } else if hasNeon () then { st with nins := st.nins + k } else st
+/-- The same for the class masks. -/
+def St.addCls (st : St) (k : Nat := 1) : St := if hasAvx2 () then { st with cls := st.cls + k } else if hasNeon () then { st with ncls := st.ncls + k } else st
 
 /-- The bytes of `a` now. An IO action, so the compiler can neither merge two snapshots of the same array nor move a snapshot across a store (`a.data` twice would be one value). -/
 @[noinline] def snap (a : ByteArray) : BaseIO (Array UInt8) := pure a.data
@@ -73,6 +81,9 @@ def checkFind (st : St) (a : ByteArray) (s : UInt32) (tag : String) : IO St := d
     if avx then
       st ← check st "findAvx2" (findAvx2 a s i == spec.toUSize) s!"{tag} size {a.size} set {s} i {i}"
       st := { st with avx := st.avx + 1 }
+    if hasNeon () then
+      st ← check st "findNeon" (findNeon a s i == spec.toUSize) s!"{tag} size {a.size} set {s} i {i}"
+      st := { st with nfind := st.nfind + 1 }
   return st
 
 /-- Filler: a byte that is in none of the sets above. -/
@@ -87,6 +98,8 @@ def findRun (st : St) : IO St := do
   match ← cpuinfoAvx2 with
   | some flag => st ← check st "has_avx2 against cpuinfo" (hasAvx2 () == flag) s!"cpuinfo says {flag}"
   | none => pure ()
+  -- NEON is a compile-time fact: aarch64 built by clang
+  st ← check st "has_neon against the target" (hasNeon () == System.Platform.target.startsWith "aarch64") s!"target {System.Platform.target}"
   let sizes := (List.range 71) ++ [95, 96, 97, 127, 128, 129, 255, 256, 257, 1000]
   for n in sizes do
     for s in findSets do
@@ -113,17 +126,17 @@ def checkInset (st : St) (a : ByteArray) (s : UInt32) (tag : String) : IO St := 
   let mut st := st
   for i in (List.range (a.size + 3)).map (·.toUSize) ++ [0xFFFFFFFF, 0x8000000000000000, 0xFFFFFFFFFFFFFFFF] do
     st ← check st "inset64" (inset64 a i s == insetSpec a i.toNat s) s!"{tag} size {a.size} set {s} i {i}"
-    st := { st with ins := st.ins + 1 }
+    st := st.addIns
   return st
 
 /-- A byte in none of the insetSets (so a filler cannot flag). -/
 def insetFiller (x : UInt64) : UInt8 := let b := (x >>> 24).toUInt8; if insetSets.any (inSet · b) then 0x61 + (b &&& 7) else b
 
-/-- The membership-mask tests (only where the CPU has AVX2, the only place the function is called from): every set; sizes 0 to 140 and the block boundaries; a member planted at each position of a filler array; every byte value
+/-- The membership-mask tests (only where the CPU has AVX2 or on aarch64, the only places the function is called from): every set; sizes 0 to 140 and the block boundaries; a member planted at each position of a filler array; every byte value
 at positions around the lane boundaries (0, 1, 15, 16, 17, 31, 32, 33, 62, 63, 64, 65, size minus one) with starts through the block; every byte a member; random dense arrays. -/
 def insetRun (st : St) : IO St := do
   let mut st := st
-  unless hasAvx2 () do return st
+  unless hasAvx2 () || hasNeon () do return st
   let sizes := (List.range 141) ++ [191, 192, 193, 255, 256, 257, 1000]
   for n in sizes do
     for s in insetSets do
@@ -154,7 +167,7 @@ def insetRun (st : St) : IO St := do
             let a := (ByteArray.mk (Array.replicate n 0x61)).set! k v.toUInt8
             for i in [0, 1, k - 1, k, 37, 64] do
               st ← check st "inset64 byte value" (inset64 a i.toUSize s == insetSpec a i s) s!"set {s} v {v} n {n} k {k} i {i}"
-              st := { st with ins := st.ins + 1 }
+              st := st.addIns
   return st
 
 /-- A fresh array of `p` bytes with room for `p + e` (so that the exclusive fast path of `appendBytes` is taken when there is room, and the runtime's when there is none). Not inlined: every call builds a new object. -/
@@ -210,22 +223,22 @@ def classTables (s : UInt64) : UInt64 × List ByteArray :=
   (s4, [jsonTbl, ByteArray.mk (Array.replicate 32 0), ByteArray.mk (Array.replicate 32 0xFF), r1, r2, r3, r4, ByteArray.mk #[0xFF, 0xFF, 0xFF], ByteArray.empty])
 def classMasks : List UInt32 := [0x60_1C_02_01, 0xFFFFFFFF, 0, 0x80_40_20_10, 0x01_02_04_08, 0x0F_F0_AA_55]
 
-/-- One array, one table, one mask word, every start: the compiled `classify64` (the AVX2 body where the CPU has it) against the machine, into a fresh `out` of 32 bytes, and the same into a shared `out` (the original untouched). -/
+/-- One array, one table, one mask word, every start: the compiled `classify64` (the AVX2 or NEON body where the build has one) against the machine, into a fresh `out` of 32 bytes, and the same into a shared `out` (the original untouched). -/
 def checkClass (st : St) (a t : ByteArray) (ms : UInt32) (tag : String) : IO St := do
   let mut st := st
   for i in (List.range (a.size + 3)).map (·.toUSize) ++ [0xFFFFFFFF, 0x8000000000000000, 0xFFFFFFFFFFFFFFFF] do
     let want := (classifyModel a i.toNat t ms (mkOutB st.s 32)).data
     let r ← snap (classify64 a i t ms (mkOut st.s 32))
     st ← check st "classify64" (r == want) s!"{tag} size {a.size} table {t.size} ms {ms} i {i}"
-    st := { st with cls := st.cls + 1 }
+    st := st.addCls
   return st
 
-/-- The class-mask tests (only where the CPU has AVX2): every table and mask word; sizes 0 to 140 and the block boundaries; random contents, every byte value at the lane boundaries (for the JSON table), all bytes members; `out` of
+/-- The class-mask tests (only where the CPU has AVX2, or on aarch64: NEON): every table and mask word; sizes 0 to 140 and the block boundaries; random contents, every byte value at the lane boundaries (for the JSON table), all bytes members; `out` of
 every size from 0 to 40 (a word is stored only where it fits) and shared. -/
 def classRun (st : St) : IO St := do
   let mut st := st
-  -- on x86-64 the function is the AVX2 body (called only where the CPU has it); elsewhere it is the scalar loop
-  unless hasAvx2 () || !System.Platform.target.startsWith "x86_64" do return st
+  -- on x86-64 the function is the AVX2 body (called only where the CPU has it), on aarch64 the NEON body; elsewhere it is the scalar loop
+  unless hasAvx2 () || hasNeon () || !System.Platform.target.startsWith "x86_64" do return st
   let (s', tbls) := classTables st.s
   st := { st with s := s' }
   let sizes := (List.range 141) ++ [191, 192, 193, 255, 256, 257, 1000]
@@ -244,7 +257,7 @@ def classRun (st : St) : IO St := do
           for i in [0, 1, k - 1, k, 37, 64] do
             for ms in [0x60_1C_02_01, 0xFFFFFFFF] do
               st ← check st "classify64 byte value" ((← snap (classify64 a i.toUSize jsonTbl ms (mkOut st.s 32))) == (classifyModel a i jsonTbl ms (mkOutB st.s 32)).data) s!"v {v} n {n} k {k} i {i}"
-              st := { st with cls := st.cls + 1 }
+              st := st.addCls
   -- the destination: every size 0 to 40, unshared and shared
   let (s3, a) := mkArray st.s 200
   st := { st with s := s3 }
@@ -258,8 +271,112 @@ def classRun (st : St) : IO St := do
       let o1 ← snap o
       st ← check st "classify64 shared result" (r == want) s!"out {on} i {i}"
       st ← check st "classify64 shared original untouched" (o1 == o0) s!"out {on} i {i}"
-      st := { st with cls := st.cls + 2 }
+      st := st.addCls 2
   return st
+
+/-! ## The bench (informational: printed, never a pass or fail)
+
+The vector bodies against the portable code in the same process, on the same bytes: the byte search against the proved `findSwar` (the portable path `findFirstOf` takes), the membership masks against four `eqMask64` (the portable SWAR mask) and
+the class masks against a per-byte Lean loop (the machine's own loop; the real portable stage 1 is a consumer's). 1 MiB, several passes, the best of three; the one-minute load average is printed beside the numbers. -/
+
+def benchBytes : Nat := 1048576
+
+/-- One MiB of filler with a member of `s` every `l` bytes. -/
+@[noinline] def benchArray (s : UInt32) (l : Nat) : ByteArray := Id.run do
+  let mut st := 0x1234567 + l.toUInt64; let mut a := ByteArray.empty
+  for k in [0:benchBytes] do
+    st := next st
+    a := a.push (if k % l == l - 1 then member s k else fillerByte st)
+  return a
+
+@[inline] def scanAll (f : ByteArray → UInt32 → Nat → Nat) (a : ByteArray) (s : UInt32) (passes : Nat) : Nat := Id.run do
+  let mut acc := 0
+  for _ in [0:passes] do
+    let mut i := 0
+    while i < a.size do
+      let r := f a s i
+      acc := acc + r
+      i := r + 1
+  return acc
+
+@[inline] def insetAll (f : ByteArray → USize → UInt32 → UInt64) (a : ByteArray) (s : UInt32) (passes : Nat) : UInt64 := Id.run do
+  let mut acc : UInt64 := 0
+  for _ in [0:passes] do
+    for k in [0:a.size / 64] do acc := acc ^^^ f a (k * 64).toUSize s
+  return acc
+
+/-- The portable masks: four `eqMask64` (the SWAR compare of eight words) or-ed; the repeated members are computed once per call. -/
+def insetSwar (a : ByteArray) (i : USize) (s : UInt32) : UInt64 :=
+  let w0 := ld64 a i; let w1 := ld64 a (i + 8); let w2 := ld64 a (i + 16); let w3 := ld64 a (i + 24)
+  let w4 := ld64 a (i + 32); let w5 := ld64 a (i + 40); let w6 := ld64 a (i + 48); let w7 := ld64 a (i + 56)
+  eqMask64 (rep8 s.toUInt8) w0 w1 w2 w3 w4 w5 w6 w7 ||| eqMask64 (rep8 (s >>> 8).toUInt8) w0 w1 w2 w3 w4 w5 w6 w7 |||
+  eqMask64 (rep8 (s >>> 16).toUInt8) w0 w1 w2 w3 w4 w5 w6 w7 ||| eqMask64 (rep8 (s >>> 24).toUInt8) w0 w1 w2 w3 w4 w5 w6 w7
+
+@[noinline] def classAllVec (a t : ByteArray) (ms : UInt32) (passes : Nat) : UInt64 := Id.run do
+  let mut acc : UInt64 := 0
+  let mut out := mkOut 7 32
+  for _ in [0:passes] do
+    for k in [0:a.size / 64] do
+      out := classify64 a (k * 64).toUSize t ms out
+      acc := acc ^^^ ld64 out 0 ^^^ ld64 out 8 ^^^ ld64 out 16 ^^^ ld64 out 24
+  return acc
+
+/-- The per-byte loop: the four masks of a block, byte by byte through the two nibble tables. -/
+@[noinline] def classAllLoop (a t : ByteArray) (ms : UInt32) (passes : Nat) : UInt64 := Id.run do
+  let m0 := ms.toUInt8; let m1 := (ms >>> 8).toUInt8; let m2 := (ms >>> 16).toUInt8; let m3 := (ms >>> 24).toUInt8
+  let mut acc : UInt64 := 0
+  for _ in [0:passes] do
+    for k in [0:a.size / 64] do
+      let mut r0 : UInt64 := 0; let mut r1 : UInt64 := 0; let mut r2 : UInt64 := 0; let mut r3 : UInt64 := 0
+      for j in [0:64] do
+        let v := a.get! (k * 64 + j)
+        let c := t.get! (v &&& 15).toNat &&& t.get! (16 + (v >>> 4).toNat)
+        let b : UInt64 := (1 : UInt64) <<< j.toUInt64
+        if c &&& m0 != 0 then r0 := r0 ||| b
+        if c &&& m1 != 0 then r1 := r1 ||| b
+        if c &&& m2 != 0 then r2 := r2 ||| b
+        if c &&& m3 != 0 then r3 := r3 ||| b
+      acc := acc ^^^ r0 ^^^ r1 ^^^ r2 ^^^ r3
+  return acc
+
+/-- The best of three timings of `f` in nanoseconds (the result is returned so that the call cannot be dropped). -/
+def best3 (f : Unit → Nat) : IO (Nat × Nat) := do
+  let mut best := 0xFFFFFFFFFFFFFFFF; let mut r := 0
+  for _ in [0:3] do
+    let t0 ← IO.monoNanosNow
+    r := f ()
+    let t1 ← IO.monoNanosNow
+    best := min best (t1 - t0)
+  return (r, best)
+
+def mbps (passes ns : Nat) : Nat := if ns == 0 then 0 else benchBytes * passes * 1000 / ns
+
+def benchRun : IO Unit := do
+  unless hasAvx2 () || hasNeon () do return
+  let isa := if hasNeon () then "NEON" else "AVX2"
+  let load := ((← IO.FS.readFile "/proc/loadavg").splitOn " ").headD "?"
+  IO.println s!"bench (load {load}, {System.Platform.target}): one MiB, best of three, MB/s; vector = {isa}"
+  -- the byte search: a member every 16, 64 and 1024 bytes
+  let s : UInt32 := 0x0D0D0D0A
+  for l in [16, 64, 1024] do
+    let a := benchArray s l
+    let passes := 8
+    let (r0, t0) ← best3 (fun _ => scanAll findSwar a s passes)
+    let vec : ByteArray → UInt32 → Nat → Nat := if hasNeon () then fun a s i => (findNeon a s i.toUSize).toNat else fun a s i => (findAvx2 a s i.toUSize).toNat
+    let (r1, t1) ← best3 (fun _ => scanAll vec a s passes)
+    IO.println s!"bench find, a member every {l} bytes: portable findSwar {mbps passes t0}, {isa} {mbps passes t1} ({mbps passes t1 * 10 / (mbps passes t0 + 1) / 10}.{mbps passes t1 * 10 / (mbps passes t0 + 1) % 10}x){if r0 == r1 then "" else " MISMATCH"}"
+  -- the membership masks, the JSON operator set
+  let js : UInt32 := 0x7D7B3A2C
+  let a := benchArray js 64
+  let passes := 8
+  let (r0, t0) ← best3 (fun _ => (insetAll insetSwar a js passes).toNat)
+  let (r1, t1) ← best3 (fun _ => (insetAll inset64 a js passes).toNat)
+  IO.println s!"bench inset64: portable four eqMask64 {mbps passes t0}, {isa} {mbps passes t1} ({mbps passes t1 * 10 / (mbps passes t0 + 1) / 10}.{mbps passes t1 * 10 / (mbps passes t0 + 1) % 10}x){if r0 == r1 then "" else " MISMATCH"}"
+  -- the class masks, the JSON tables
+  let passes := 4
+  let (r2, t2) ← best3 (fun _ => (classAllLoop a jsonTbl 0x60_1C_02_01 passes).toNat)
+  let (r3, t3) ← best3 (fun _ => (classAllVec a jsonTbl 0x60_1C_02_01 passes).toNat)
+  IO.println s!"bench classify64: per-byte Lean loop {mbps passes t2}, {isa} {mbps passes t3} ({mbps passes t3 * 10 / (mbps passes t2 + 1) / 10}.{mbps passes t3 * 10 / (mbps passes t2 + 1) % 10}x){if r2 == r3 then "" else " MISMATCH"}"
 
 def run : IO UInt32 := do
   let mut st : St := { s := 0x9E3779B97F4A7C15 }
@@ -331,7 +448,8 @@ def run : IO UInt32 := do
   st ← appendRun st
   st ← classRun st
   if st.bad == 0 then
-    IO.println s!"shim-test: ok ({st.count} comparisons of the C shims against their Lean models; {st.avx} of them the AVX2 search; {st.ins} of them the AVX2 membership masks; {st.app} of them the short append; {st.cls} of them the AVX2 class masks)"
+    IO.println s!"shim-test: ok ({st.count} comparisons of the C shims against their Lean models; {st.avx} of them the AVX2 search; {st.ins} of them the AVX2 membership masks; {st.app} of them the short append; {st.cls} of them the AVX2 class masks; {st.nfind} of them the NEON search; {st.nins} of them the NEON membership masks; {st.ncls} of them the NEON class masks)"
+    benchRun
     return 0
   IO.eprintln s!"shim-test: FAILED ({st.bad} of {st.count})"
   return 1

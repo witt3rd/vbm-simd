@@ -163,11 +163,26 @@ theorem findAvx_spec (a : ByteArray) (s : UInt32) (i : Nat) : findAvx a s i = fi
     exact Nat.mod_eq_of_lt (by omega)
   · simp only [h, ↓reduceIte]
 
+/-- `[VS-11]` the NEON path (by its model) is the machine. -/
+theorem findNeonN_spec (a : ByteArray) (s : UInt32) (i : Nat) : findNeonN a s i = findSpec a s i := by
+  unfold findNeonN
+  by_cases h : i < a.size ∧ a.usize.toNat = a.size
+  · simp only [h, and_self, ↓reduceIte]
+    have hN := USize.toNat_lt_size a.usize
+    have hi : i.toUSize.toNat = i := by rw [USize.toNat_ofNat', ← show USize.size = 2 ^ System.Platform.numBits from rfl]; exact Nat.mod_eq_of_lt (by omega)
+    have hle := findSpec_le a s _ i (Nat.le_refl _)
+    show (USize.ofNat (findSpec a s i.toUSize.toNat)).toNat = _
+    rw [hi, USize.toNat_ofNat', ← show USize.size = 2 ^ System.Platform.numBits from rfl]
+    exact Nat.mod_eq_of_lt (by omega)
+  · simp only [h, ↓reduceIte]
+
 /-- `[VS-11]` the search a consumer calls is the machine, whatever the CPU test says. -/
 theorem findFirstOf_spec (a : ByteArray) (s : UInt32) (i : Nat) : findFirstOf a s i = findSpec a s i := by
   unfold findFirstOf
   split
   · exact findAvx_spec a s i
-  · exact findSwar_spec a s i
+  · split
+    · exact findNeonN_spec a s i
+    · exact findSwar_spec a s i
 
 end VbmSimdProofs

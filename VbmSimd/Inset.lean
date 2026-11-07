@@ -3,7 +3,7 @@ import VbmSimd.Shims
 
 `inset64 a i s` is the 64-bit mask whose bit `p` says that byte `i + p` of `a` is one of the (at most four) bytes of the set `s`: the first step of a structural scanner, which asks one such question per byte class
 (quote, backslash, operators, white space) of every block of 64 bytes. The machine is `insetSpec` (`[VS-12]`), one bit per byte; the compiled code runs `vbm_simd_inset64` (`include/vbm_simd.h`, trust ledger T12), a
-vector search whose Lean body is that machine (the model), tested against it (`tests/ShimTest.lean`). Where the CPU has no AVX2 (`hasAvx2 ()`, `VbmSimd.Find`) a consumer does not call it: it runs its own proved portable kernel. -/
+vector search whose Lean body is that machine (the model), tested against it (`tests/ShimTest.lean`). On aarch64 the same symbol has a NEON body (trust ledger T15). Where the build has neither (`hasAvx2 ()` and `hasNeon ()`, `VbmSimd.Find`) a consumer does not call it: it runs its own proved portable kernel. -/
 namespace VbmSimd
 
 /-- The mask of the first `n` bits whose predicate holds: bit `p` is `f p` for `p < n`, `0` from `n` on (`n ≤ 64`). -/

@@ -40,10 +40,10 @@ def findSwar (a : ByteArray) (s : UInt32) (i : Nat) : Nat :=
     (if i < a.size then (findSwarGo a n (rep8 s.toUInt8) (rep8 (s >>> 8).toUInt8) (rep8 (s >>> 16).toUInt8) (rep8 (s >>> 24).toUInt8) i.toUSize).toNat else a.size)
   else findSpec a s i
 
-/-! ## The AVX2 search, and the choice between it and `findSwar`
+/-! ## The AVX2 and NEON searches, and the choice between them and `findSwar`
 
 `vbm_simd_find_avx2` (`include/vbm_simd.h`, trust ledger T11) is the C body of `findAvx2`, whose Lean body `findSpec` is its model; it is tested against that model and against `findSwar`
-(`tests/ShimTest.lean`). `hasAvx2 ()` asks the CPU once (cpuid, and that the OS saves the vector state). `findFirstOf` takes the shim when it is there and the proved `findSwar` otherwise;
+(`tests/ShimTest.lean`). `hasAvx2 ()` asks the CPU once (cpuid, and that the OS saves the vector state). `vbm_simd_find_neon` (trust ledger T15) is the NEON twin, with the same model; `hasNeon ()` is a compile-time fact (aarch64). `findFirstOf` takes the AVX2 shim when the CPU has it, the NEON shim on aarch64, and the proved `findSwar` otherwise;
 `findFirstOf_spec` holds for either answer of the CPU test, so the proof does not depend on which one a machine gives. -/
 
 /-- Does this CPU (and OS) run AVX2? The model says `false`; `findFirstOf_spec` is true for either value. `never_extract`: the compiler must not hoist `hasAvx2 ()` into a closed constant computed once at start-up (`lean_uint8_once`, a runtime function the freestanding builds of the consumers do not have); the shim caches the answer itself. -/
@@ -52,12 +52,22 @@ def findSwar (a : ByteArray) (s : UInt32) (i : Nat) : Nat :=
 /-- The AVX2 search, 32 bytes per step, never reading outside the array (model: `findSpec`; the index is a word and the result is `a.size` when there is no match or `i` is past the end). -/
 @[extern "vbm_simd_find_avx2"] def findAvx2 (a : @& ByteArray) (s : UInt32) (i : USize) : USize := (findSpec a s i.toNat).toUSize
 
+/-- Does this build run NEON (aarch64, compiled by clang)? A compile-time fact of the shim: NEON is part of the aarch64 base architecture, so there is no CPU test. The model says `false`; `findFirstOf_spec` is true for either value. `never_extract` as `hasAvx2`. -/
+@[extern "vbm_simd_has_neon", never_extract] def hasNeon (_ : Unit) : Bool := false
+
+/-- The NEON search, 32 bytes per step, never reading outside the array (model: `findSpec`, as `findAvx2`). `vbm_simd_find_neon`, trust ledger T15; the scalar loop on a build without NEON. -/
+@[extern "vbm_simd_find_neon"] def findNeon (a : @& ByteArray) (s : UInt32) (i : USize) : USize := (findSpec a s i.toNat).toUSize
+
 /-- `findAvx2` for a start that is a `Nat` (the machine itself when the size or the start does not fit a word). -/
 def findAvx (a : ByteArray) (s : UInt32) (i : Nat) : Nat :=
   if i < a.size ∧ a.usize.toNat = a.size then (findAvx2 a s i.toUSize).toNat else findSpec a s i
 
-/-- `[VS-11]` The first byte at or after `i` that is a member of `s` (`a.size` when there is none): the AVX2 search on a CPU that has it, the proved portable search otherwise. -/
+/-- `findNeon` for a start that is a `Nat` (as `findAvx`). -/
+def findNeonN (a : ByteArray) (s : UInt32) (i : Nat) : Nat :=
+  if i < a.size ∧ a.usize.toNat = a.size then (findNeon a s i.toUSize).toNat else findSpec a s i
+
+/-- `[VS-11]` The first byte at or after `i` that is a member of `s` (`a.size` when there is none): the AVX2 search on a CPU that has it, the NEON search on aarch64, the proved portable search otherwise. -/
 def findFirstOf (a : ByteArray) (s : UInt32) (i : Nat) : Nat :=
-  if hasAvx2 () then findAvx a s i else findSwar a s i
+  if hasAvx2 () then findAvx a s i else if hasNeon () then findNeonN a s i else findSwar a s i
 
 end VbmSimd

@@ -5,7 +5,7 @@ import VbmSimd.Inset
 bytes) and the byte `v >> 4` of the second 16 bytes, and-ed (the nibble tables of a vector classifier: two byte shuffles per 32 bytes of input). Mask `r` (the byte `r` of `ms`) flags the byte `i + p` iff it exists and its class
 bits meet that mask byte. One call replaces a call of `inset64` per mask (each re-reads the block and re-broadcasts its constants); the tables and the masks are the caller's, so what a class *is* stays in Lean: the shim moves and
 tests bits (`include/vbm_simd.h`, trust ledger T14). The Lean body is the model: the per-byte machine `classSpec` for each mask, stored with `stFull` (a word is stored only where all eight of its bytes lie inside `out`). A consumer
-calls it only where `hasAvx2 ()` (the shim's body is the AVX2 one there; the scalar loop elsewhere is correct but slow) and runs its own proved portable kernel otherwise. -/
+calls it only where `hasAvx2 () || hasNeon ()` (the shim's body is the AVX2 one or, on aarch64, the NEON one of T15 there; the scalar loop elsewhere is correct but slow) and runs its own proved portable kernel otherwise. -/
 namespace VbmSimd
 
 /-- The class bits of byte `v` under the nibble tables `t` (bytes 0 to 15: by low nibble; 16 to 31: by high nibble; zero past the end of `t`). -/

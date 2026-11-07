@@ -1,9 +1,9 @@
 /* tests/find_guard.c: the byte search of include/vbm_simd.h (trust ledger T11), the membership masks (T12) and the class masks (T14) against a naive loop, on buffers that touch an unmapped page, so that ANY read outside [0, n) is a SIGSEGV and fails
  * the test (an over-read of one byte included: the page before and the page after the buffer are PROT_NONE). Every size 0 to 160, the buffer placed flush against the end of its page and flush
  * against the start of its page (n = 0 puts the pointer on the guard itself), four sets, a member planted at every position and none, every start from 0 to n + 1. The scalar loop is checked
- * on the same cases (it is the whole search on a CPU without AVX2 and the tail of the AVX2 one for short arrays); the AVX2 search only when this CPU has it. Built and run by scripts/test-shims.sh. */
+ * on the same cases (it is the whole search on a CPU without AVX2 and the tail of the AVX2 one for short arrays); the AVX2 search only when this CPU has it, the NEON bodies (T15) on aarch64. Built and run by scripts/test-shims.sh. */
 #include "vbm_simd.h"
-/* The Lean toolchain's compiler ships no libc headers (only its glibc libraries): the five libc functions used are declared here; the values are Linux's, the same on x86-64 and aarch64. On aarch64 there is no AVX2 body: only the scalar loop is checked. */
+/* The Lean toolchain's compiler ships no libc headers (only its glibc libraries): the five libc functions used are declared here; the values are Linux's, the same on x86-64 and aarch64. On aarch64 the scalar loop and the NEON bodies are checked. */
 extern void *mmap(void *, size_t, int, int, int, long);
 extern int mprotect(void *, size_t, int);
 extern int printf(const char *, ...);
@@ -35,6 +35,7 @@ int main(void) {
 #else
   int avx = 0;
 #endif
+  int neon = VBM_SIMD_NEON;   /* the NEON bodies (T15) are compiled on aarch64 with clang: always checked there */
   size_t count = 0, bad = 0;
   for (int flush = 0; flush < 2; flush++)
     for (size_t n = 0; n <= 160; n++)
@@ -50,10 +51,16 @@ int main(void) {
 #if defined(__x86_64__) && defined(__clang__)
             if (avx && vbm_simd_find_avx2_n(p, n, i, s) != want) { bad++; dprintf(2, "find-guard: avx2 n=%zu i=%zu set=%08x plant=%ld flush=%d\n", n, i, s, plant, flush); }
 #endif
+#if defined(__aarch64__) && defined(__clang__)
+            if (vbm_simd_find_neon_n(p, n, i, s) != want) { bad++; dprintf(2, "find-guard: neon n=%zu i=%zu set=%08x plant=%ld flush=%d\n", n, i, s, plant, flush); }
+#endif
             uint64_t wm = naive_mask(p, n, i, s);
             if (vbm_simd_inset64_scalar(p, n, i, s) != wm) { bad++; dprintf(2, "find-guard: inset scalar n=%zu i=%zu set=%08x plant=%ld flush=%d\n", n, i, s, plant, flush); }
 #if defined(__x86_64__) && defined(__clang__)
             if (avx && vbm_simd_inset64_avx2_n(p, n, i, s) != wm) { bad++; dprintf(2, "find-guard: inset avx2 n=%zu i=%zu set=%08x plant=%ld flush=%d\n", n, i, s, plant, flush); }
+#endif
+#if defined(__aarch64__) && defined(__clang__)
+            if (vbm_simd_inset64_neon_n(p, n, i, s) != wm) { bad++; dprintf(2, "find-guard: inset neon n=%zu i=%zu set=%08x plant=%ld flush=%d\n", n, i, s, plant, flush); }
 #endif
             count++;
           }
@@ -118,11 +125,17 @@ int main(void) {
               for (int k = 0; k < 4; k++) if (got[k] != want[k]) { bad++; dprintf(2, "find-guard: class avx2 n=%zu i=%zu mask=%d flush=%d\n", n, i, k, flush); }
             }
 #endif
+#if defined(__aarch64__) && defined(__clang__)
+            if (i < n && n - i >= 64) {
+              vbm_simd_class_words_neon(p + i, t, mss[mi], got);
+              for (int k = 0; k < 4; k++) if (got[k] != want[k]) { bad++; dprintf(2, "find-guard: class neon n=%zu i=%zu mask=%d flush=%d\n", n, i, k, flush); }
+            }
+#endif
             count++;
           }
         }
   }
   if (bad) { dprintf(2, "find-guard: FAILED (%zu of %zu)\n", bad, count); return 1; }
-  printf("find-guard: ok (%zu cases, avx2 %s)\n", count, avx ? "checked" : "not on this cpu");
+  printf("find-guard: ok (%zu cases, avx2 %s, neon %s)\n", count, avx ? "checked" : "not on this cpu", neon ? "checked" : "not on this build");
   return 0;
 }

@@ -14,24 +14,31 @@ lake build shim-test
 # Crash probes (the mutants crash on purpose) run through the vendored lander's run-probe: ulimit -c 0 PLUS the dumpable-clear preload, so a crash leaves no core and no crash record (scripts/land/docs/crash-probes.md).
 probe="$PWD/scripts/land/bin/run-probe"
 "$probe" true || { echo "test-shims: run-probe is refused or unusable: no mutant can be run" >&2; exit 1; }
-# The AVX2 search must have RUN: on a CPU that has AVX2 (and always on x86-64 CI; aarch64 has no AVX2 body, the portable path runs) the test reports a non-zero number of its comparisons; a run that skipped them proves nothing about the shim.
-avx2_ran() {  # avx2_ran REQUIRED OUTPUT [WHAT]: fails when AVX2 comparisons are required and the output says none ran (WHAT: "search", the default, or "membership masks")
-  local n; n=$(sed -n "s/.*; \([0-9][0-9]*\) of them the AVX2 ${3:-search}.*/\1/p" <<<"$2" | sed -n 1p)
+# The vector bodies must have RUN: on a CPU that has AVX2 (and always on x86-64 CI) the test reports a non-zero number of its AVX2 comparisons, on aarch64 (NEON is baseline there, and CI is the real machine) a non-zero number of its NEON ones;
+# a run that skipped them proves nothing about the shim, so it fails. The reports are counted per kernel: the search, the membership masks, the class masks.
+vec_ran() {  # vec_ran REQUIRED OUTPUT ISA [WHAT]: fails when comparisons are required and the output says none ran (ISA: AVX2 or NEON; WHAT: "search", the default, "membership masks" or "class masks")
+  local n; n=$(sed -n "s/.*; \([0-9][0-9]*\) of them the $3 ${4:-search}.*/\1/p" <<<"$2" | sed -n 1p)
   [ -n "$n" ] || return 1
   [ "$1" != 1 ] || [ "$n" -gt 0 ]
 }
-avx2_ran 1 "shim-test: ok (5 comparisons of the C shims against their Lean models; 3 of them the AVX2 search)" || { echo "test-shims: self-test: the AVX2-ran check rejects a run with AVX2 comparisons" >&2; exit 1; }
-! avx2_ran 1 "shim-test: ok (5 comparisons of the C shims against their Lean models; 0 of them the AVX2 search)" || { echo "test-shims: self-test: the AVX2-ran check accepts a run with none" >&2; exit 1; }
-! avx2_ran 0 "shim-test: ok (5 comparisons of the C shims against their Lean models)" || { echo "test-shims: self-test: the AVX2-ran check accepts output with no count" >&2; exit 1; }
-need_avx2=0; if [ "$(uname -m)" != x86_64 ]; then need_avx2=0; elif [ -n "${CI:-}" ]; then need_avx2=1; elif grep -qw avx2 /proc/cpuinfo 2>/dev/null; then need_avx2=1; fi   # the AVX2 body exists only on x86-64; on aarch64 the portable path is the one that runs
+vec_ran 1 "shim-test: ok (5 comparisons of the C shims against their Lean models; 3 of them the AVX2 search)" AVX2 || { echo "test-shims: self-test: the ran check rejects a run with AVX2 comparisons" >&2; exit 1; }
+! vec_ran 1 "shim-test: ok (5 comparisons of the C shims against their Lean models; 0 of them the AVX2 search)" AVX2 || { echo "test-shims: self-test: the ran check accepts a run with none" >&2; exit 1; }
+! vec_ran 0 "shim-test: ok (5 comparisons of the C shims against their Lean models)" AVX2 || { echo "test-shims: self-test: the ran check accepts output with no count" >&2; exit 1; }
+vec_ran 1 "shim-test: ok (5 comparisons; 3 of them the AVX2 search; 7 of them the AVX2 membership masks)" AVX2 "membership masks" || { echo "test-shims: self-test: the ran check rejects a run with AVX2 membership comparisons" >&2; exit 1; }
+! vec_ran 1 "shim-test: ok (5 comparisons; 3 of them the AVX2 search; 0 of them the AVX2 membership masks)" AVX2 "membership masks" || { echo "test-shims: self-test: the ran check accepts a run with no membership comparisons" >&2; exit 1; }
+vec_ran 1 "shim-test: ok (5 comparisons; 3 of them the AVX2 search; 0 of them the NEON search; 4 of them the NEON class masks)" NEON "class masks" || { echo "test-shims: self-test: the ran check rejects a run with NEON class comparisons" >&2; exit 1; }
+! vec_ran 1 "shim-test: ok (5 comparisons; 3 of them the AVX2 search; 0 of them the NEON search; 4 of them the NEON class masks)" NEON || { echo "test-shims: self-test: the ran check accepts a run with no NEON search comparisons" >&2; exit 1; }
+need_avx2=0; if [ "$(uname -m)" != x86_64 ]; then need_avx2=0; elif [ -n "${CI:-}" ]; then need_avx2=1; elif grep -qw avx2 /proc/cpuinfo 2>/dev/null; then need_avx2=1; fi   # the AVX2 body exists only on x86-64
+need_neon=0; if [ "$(uname -m)" = aarch64 ] || [ "$(uname -m)" = arm64 ]; then need_neon=1; fi   # the NEON body exists only on aarch64, where NEON is baseline: always required there
 out=$(.lake/build/bin/shim-test); echo "$out"
-avx2_ran "$need_avx2" "$out" || { echo "test-shims: the AVX2 search did not run (required on CI and on a CPU with AVX2)" >&2; exit 1; }
-avx2_ran "$need_avx2" "$out" "membership masks" || { echo "test-shims: the AVX2 membership masks did not run (required on CI and on a CPU with AVX2)" >&2; exit 1; }
-avx2_ran 1 "shim-test: ok (5 comparisons; 3 of them the AVX2 search; 7 of them the AVX2 membership masks)" "membership masks" || { echo "test-shims: self-test: the AVX2-ran check rejects a run with AVX2 membership comparisons" >&2; exit 1; }
-! avx2_ran 1 "shim-test: ok (5 comparisons; 3 of them the AVX2 search; 0 of them the AVX2 membership masks)" "membership masks" || { echo "test-shims: self-test: the AVX2-ran check accepts a run with no membership comparisons" >&2; exit 1; }
-avx2_ran "$need_avx2" "$out" "class masks" || { echo "test-shims: the AVX2 class masks did not run (required on CI and on a CPU with AVX2)" >&2; exit 1; }
+for w in "search" "membership masks" "class masks"; do
+  vec_ran "$need_avx2" "$out" AVX2 "$w" || { echo "test-shims: the AVX2 $w did not run (required on CI and on a CPU with AVX2)" >&2; exit 1; }
+  vec_ran "$need_neon" "$out" NEON "$w" || { echo "test-shims: the NEON $w did not run (required on aarch64)" >&2; exit 1; }
+done
+! grep -q MISMATCH <<<"$out" || { echo "test-shims: the bench's vector and portable results differ" >&2; exit 1; }
 # The byte search against unmapped pages (tests/find_guard.c: any read outside the buffer is a SIGSEGV). Built with the toolchain's own compiler, from the include directory it is given.
-G=$(mktemp -d); leanc -O2 -I include tests/find_guard.c -o "$G/find_guard" && "$G/find_guard" || { rm -rf "$G"; echo "test-shims: the byte-search guard test failed" >&2; exit 1; }; rm -rf "$G"
+G=$(mktemp -d); leanc -O2 -I include tests/find_guard.c -o "$G/find_guard" && gout=$("$G/find_guard") && echo "$gout" || { rm -rf "$G"; echo "test-shims: the byte-search guard test failed" >&2; exit 1; }; rm -rf "$G"
+[ "$need_neon" = 0 ] || grep -q "neon checked" <<<"$gout" || { echo "test-shims: the guard test did not check the NEON bodies (required on aarch64)" >&2; exit 1; }
 . scripts/lib-reap.sh   # an abort or exit stops the mutant jobs by the pids held here (each job is its own process group: set -m); never by pattern
 pids=(); T=$(mktemp -d); trap 'reap_pids "${pids[@]}"; rm -rf "$T"' EXIT; trap 'exit 143' INT TERM HUP
 # mutant NAME 'sed expression'
@@ -86,9 +93,40 @@ mutants=(
   "class-shared-slow|/vbm_simd_put4_slow/,/^}/s|lean_sarray_ensure_exclusive(out)|out|"
   "class-partial-store|/vbm_simd_put4_slow/,/^}/s|8 \* k + 8 <= n|8 * k < n|"
   "class-fast-bound|s|if (lean_sarray_size(out) >= 32) {|if (lean_sarray_size(out) >= 24) {|"
+  # the NEON bodies (T15), compiled on aarch64 only. The search: a read past the end, bits kept from before the start, a shift off by one, a dropped member (in the loop, in the tail), no bounds guard, a wrong tail load, a wrong index, the second
+  # vector of a step reported as the first, a wrong nibble width, a wrong narrowing shift, a wrong CPU fact. The masks: an over-read, bits kept from before the start, a dropped member, no bounds guard, a wrong tail load, a wrong short-array case,
+  # a wrong bit weight, a wrong pairing order. The class masks: an over-read, the low lookup indexed by the high nibble, the low nibble not masked, a wrong shift, a dropped mask, the wrong table half
+  "neon-find-overread|s|while (n - i >= 32) {\$|while (n - i >= 17) {|"
+  "neon-find-no-shift-out|s|>> (4 \* (16 - (n - i)))|>> 0|"
+  "neon-find-shift-off-by-one|s|>> (4 \* (16 - (n - i)))|>> (4 * (15 - (n - i)))|"
+  "neon-find-drop-member|s# [\|] (x == c3)##"
+  "neon-find-drop-member-tail|s# [\|] (x == vbm_neon_dup((uint8_t)(s >> 24)))##"
+  "neon-find-no-bounds|/vbm_simd_find_neon_n/{n;s|  if (i >= n) return n;||}"
+  "neon-find-tail-load|s|vbm_simd_members16_neon(p + n - 16, s)|vbm_simd_members16_neon(p + i, s)|"
+  "neon-find-index|s|if (m) return i + ((size_t)__builtin_ctzll(m) >> 2); i += 16;|if (m) return i + 1 + ((size_t)__builtin_ctzll(m) >> 2); i += 16;|"
+  "neon-find-second-half|s|return i + 16 + ((size_t)__builtin_ctzll(vbm_neon_nib(f)) >> 2)|return i + ((size_t)__builtin_ctzll(vbm_neon_nib(f)) >> 2)|"
+  "neon-find-nibble-width|s|return i + ((size_t)__builtin_ctzll(m) >> 2);\$|return i + ((size_t)__builtin_ctzll(m) >> 1);|"
+  "neon-nib-shift|s|__builtin_neon_vshrn_n_v((vbm_s16)e, 4, 16)|__builtin_neon_vshrn_n_v((vbm_s16)e, 3, 16)|"
+  "neon-has|s|return (uint8_t)VBM_SIMD_NEON; }|return 0; }|"
+  "neon-inset-overread|s|if (r >= 64) return vbm_simd_members64_neon(p + i, s);|if (r >= 1) return vbm_simd_members64_neon(p + i, s);|"
+  "neon-inset-no-shift-out|s|vbm_simd_members64_neon(p + n - 64, s) >> (64 - r)|vbm_simd_members64_neon(p + n - 64, s) >> 0|"
+  "neon-inset-drop-member|s# [\|] (x3 == c3)##"
+  "neon-inset-no-bounds|/vbm_simd_inset64_neon_n/{n;s|  if (i >= n) return 0;||}"
+  "neon-inset-tail-load|s|vbm_simd_members64_neon(p + n - 64, s)|vbm_simd_members64_neon(p + i, s)|"
+  "neon-inset-short-array|s|if (n < 64) return vbm_simd_inset64_scalar(p, n, i, s);||"
+  "neon-mask-weights|s|16, 32, 64, 128, 1, 2, 4, 8, 16, 32, 64, 128};|16, 32, 64, 128, 1, 2, 4, 8, 16, 32, 128, 64};|"
+  "neon-mask-order|s|t0 = vbm_neon_padd(t0, t1);|t0 = vbm_neon_padd(t1, t0);|"
+  "neon-class-overread|s|if (i < n \&\& n - i >= 64) vbm_simd_class_words_neon|if (i < n \&\& n - i >= 1) vbm_simd_class_words_neon|"
+  "neon-class-low-index|s|vbm_neon_tbl(lo, x \& nib)|vbm_neon_tbl(lo, x >> 4)|"
+  "neon-class-low-unmasked|s|vbm_neon_tbl(lo, x \& nib)|vbm_neon_tbl(lo, x)|"
+  "neon-class-shift|s|vbm_neon_tbl(hi, x >> 4)|vbm_neon_tbl(hi, x >> 3)|"
+  "neon-class-mask-dropped|s|(c\[3\] \& m) != 0|(c[2] \& m) != 0|"
+  "neon-class-table-half|s|hi = vbm_neon_ld16(t + 16)|hi = vbm_neon_ld16(t)|"
 )
+# The NEON bodies (neon-*) exist only on aarch64 (#elif __aarch64__ in the header): on any other machine those mutants edit code that is not compiled, so they are not run there (the arm64 job runs them).
 # The AVX2 body (find-overread .. find-index, inset-overread .. inset-short-array, class-overread .. class-half-shift) exists only on x86-64 (#if __x86_64__ in the header): on any other machine those mutants edit code that is not compiled, so they are not run there (the x86-64 job runs them).
-if [ "$(uname -m)" != x86_64 ]; then kept=(); for m in "${mutants[@]}"; do case ${m%%|*} in find-scalar-*|inset-scalar-*|append-*|class-scalar-*|class-shared*|class-partial-store|class-fast-bound|ld64-*|st64-*|st32-*|ctz-*) kept+=("$m");; esac; done; mutants=("${kept[@]}"); fi
+if [ "$(uname -m)" = x86_64 ]; then kept=(); for m in "${mutants[@]}"; do case ${m%%|*} in neon-*) ;; *) kept+=("$m");; esac; done; mutants=("${kept[@]}"); fi
+if [ "$(uname -m)" != x86_64 ]; then kept=(); for m in "${mutants[@]}"; do case ${m%%|*} in neon-*|find-scalar-*|inset-scalar-*|append-*|class-scalar-*|class-shared*|class-partial-store|class-fast-bound|ld64-*|st64-*|st32-*|ctz-*) kept+=("$m");; esac; done; mutants=("${kept[@]}"); fi
 run_mutant() {
   local name=${1%%|*} expr=${1#*|}; local d=$T/$name
   mkdir -p "$d"; cp -r include tests lakefile.lean lean-toolchain VbmSimd VbmSimd.lean "$d"/ 2>/dev/null; cp -r .lake "$d"/.lake; rm -rf "$d"/.lake/config "$d"/.lake/lakefile.olean* "$d"/.lake/lakefile.olean.* 2>/dev/null || true   # the configured lakefile bakes in the header path (__dir__): reconfigure in the copy

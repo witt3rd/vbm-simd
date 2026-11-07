@@ -1,4 +1,4 @@
-/* include/vbm_simd.h: the trusted C of vbm-simd (docs/trust-ledger.md, T10, T11, T12 and T13). Four `static inline` primitives (T10), then the AVX2 byte search and its CPU test (T11), each the C body of an `@[extern]` function of
+/* include/vbm_simd.h: the trusted C of vbm-simd (docs/trust-ledger.md, T10 to T15). Four `static inline` primitives (T10), then the AVX2 byte search and its CPU test (T11), each the C body of an `@[extern]` function of
  * VbmSimd/Shims.lean or VbmSimd/Find.lean whose Lean body is its specification (the model). Include it first in every C file generated from Lean code that calls them
  * (`cc -include include/vbm_simd.h`): Lean then emits only an `extern` prototype after it, which a later declaration of a static function does not conflict with.
  * Every function is total: an access past the end of the array is defined (reads zero, writes nothing there), exactly as the model says; none can touch memory outside the array.
@@ -141,6 +141,16 @@ static inline lean_obj_res vbm_simd_put4(lean_obj_arg out, uint64_t w0, uint64_t
   const uint64_t w[4] = {w0, w1, w2, w3};
   return vbm_simd_put4_slow(out, w);
 }
+/* ---- T15: NEON (aarch64 built with clang). NEON is part of the aarch64 base architecture: `vbm_simd_has_neon` is a compile-time fact (1 on aarch64 with clang, 0 elsewhere), no CPU test. On aarch64 the symbols `vbm_simd_inset64` and
+ * `vbm_simd_classify64` (T12, T14) have the NEON body below, and `vbm_simd_find_neon` is the NEON byte search; on every other build `vbm_simd_find_neon` is the scalar loop. The Lean models are the same as for AVX2 (`findSpec`, `insetSpec`,
+ * `classifyModel`). Clang vector extensions and clang's `__builtin_neon_*` (the toolchain ships no arm_neon.h); the instructions are the ones a NEON intrinsic of the same name compiles to. */
+#if defined(__aarch64__) && defined(__clang__)
+#define VBM_SIMD_NEON 1
+#else
+#define VBM_SIMD_NEON 0
+#endif
+static inline uint8_t vbm_simd_has_neon(lean_obj_arg u) { (void)u; return (uint8_t)VBM_SIMD_NEON; }
+
 #if defined(__x86_64__) && defined(__clang__)
 typedef signed char vbm_v32 __attribute__((vector_size(32), aligned(1)));
 /* CPUID: AVX2 (leaf 7 ebx bit 5) with the OS saving the vector registers (OSXSAVE and AVX in leaf 1, XCR0 bits 1 and 2). Cached: the answer cannot change while the process runs. */
@@ -229,7 +239,96 @@ static inline lean_obj_res vbm_simd_classify64(b_lean_obj_arg a, size_t i, b_lea
   if (ts < 32) { for (size_t j = 0; j < ts; j++) pad[j] = t[j]; t = pad; }
   return vbm_simd_classify64_avx2_n(lean_sarray_cptr(a), lean_sarray_size(a), i, t, ms, out);
 }
+static inline size_t vbm_simd_find_neon(b_lean_obj_arg a, uint32_t s, size_t i) { return vbm_simd_find_scalar(lean_sarray_cptr(a), lean_sarray_size(a), i, s); }
+#elif defined(__aarch64__) && defined(__clang__)
+/* T15: the NEON bodies. A vector of 16 bytes is `vbm_n8`; a compare gives 0xFF or 0 per byte. There is no movemask: `vbm_neon_nib` narrows a compare result to four bits per byte (shift right and narrow: `shrn`), so the first
+ * flagged byte is `ctz / 4`; `vbm_neon_mask64` packs four compare results into one bit per byte (each byte and-ed with its bit weight, then three rounds of pairwise adds of adjacent bytes). */
+typedef __attribute__((neon_vector_type(16))) uint8_t vbm_n8;
+typedef __attribute__((neon_vector_type(16))) int8_t vbm_s8;
+typedef __attribute__((neon_vector_type(8))) uint8_t vbm_n8h;
+typedef __attribute__((neon_vector_type(8))) int16_t vbm_s16;
+static inline vbm_n8 vbm_neon_ld16(const uint8_t *p) { vbm_n8 x; __builtin_memcpy(&x, p, 16); return x; }
+static inline vbm_n8 vbm_neon_dup(uint8_t b) { vbm_n8 z = {0}; return z + b; }
+static inline vbm_n8 vbm_neon_tbl(vbm_n8 t, vbm_n8 idx) { return (vbm_n8)__builtin_neon_vqtbl1q_v((vbm_s8)t, (vbm_s8)idx, 48); }   /* byte lookup in a 16-byte table; an index of 16 or more gives 0 */
+static inline vbm_n8 vbm_neon_padd(vbm_n8 a, vbm_n8 b) { return (vbm_n8)__builtin_neon_vpaddq_v((vbm_s8)a, (vbm_s8)b, 48); }
+static inline uint8_t vbm_neon_any(vbm_n8 e) { return __builtin_neon_vmaxvq_u8(e); }   /* the largest byte: non-zero iff some byte of a compare result is set */
+static inline uint64_t vbm_neon_nib(vbm_n8 e) { vbm_n8h r = (vbm_n8h)__builtin_neon_vshrn_n_v((vbm_s16)e, 4, 16); uint64_t m; __builtin_memcpy(&m, &r, 8); return m; }
+static inline uint64_t vbm_neon_mask64(vbm_n8 e0, vbm_n8 e1, vbm_n8 e2, vbm_n8 e3) {
+  const vbm_n8 bits = {1, 2, 4, 8, 16, 32, 64, 128, 1, 2, 4, 8, 16, 32, 64, 128};
+  vbm_n8 t0 = vbm_neon_padd(e0 & bits, e1 & bits), t1 = vbm_neon_padd(e2 & bits, e3 & bits);
+  t0 = vbm_neon_padd(t0, t1); t0 = vbm_neon_padd(t0, t0);
+  uint64_t r; __builtin_memcpy(&r, &t0, 8); return r;
+}
+/* The 16 bytes at p: four bits per byte of the compare result (all four of a byte set iff it is a member). */
+static inline uint64_t vbm_simd_members16_neon(const uint8_t *p, uint32_t s) {
+  vbm_n8 x = vbm_neon_ld16(p);
+  vbm_n8 e = (x == vbm_neon_dup((uint8_t)s)) | (x == vbm_neon_dup((uint8_t)(s >> 8))) | (x == vbm_neon_dup((uint8_t)(s >> 16))) | (x == vbm_neon_dup((uint8_t)(s >> 24)));
+  return vbm_neon_nib(e);
+}
+static inline size_t vbm_simd_find_neon_n(const uint8_t *p, size_t n, size_t i, uint32_t s) {
+  if (i >= n) return n;
+  vbm_n8 c0 = vbm_neon_dup((uint8_t)s), c1 = vbm_neon_dup((uint8_t)(s >> 8)), c2 = vbm_neon_dup((uint8_t)(s >> 16)), c3 = vbm_neon_dup((uint8_t)(s >> 24));
+  while (n - i >= 32) {
+    vbm_n8 x = vbm_neon_ld16(p + i), y = vbm_neon_ld16(p + i + 16);
+    vbm_n8 e = (x == c0) | (x == c1) | (x == c2) | (x == c3), f = (y == c0) | (y == c1) | (y == c2) | (y == c3);
+    if (vbm_neon_any(e | f)) {
+      uint64_t m = vbm_neon_nib(e);
+      if (m) return i + ((size_t)__builtin_ctzll(m) >> 2);
+      return i + 16 + ((size_t)__builtin_ctzll(vbm_neon_nib(f)) >> 2);
+    }
+    i += 32;
+  }
+  if (n - i >= 16) { uint64_t m = vbm_simd_members16_neon(p + i, s); if (m) return i + ((size_t)__builtin_ctzll(m) >> 2); i += 16; }
+  if (i == n) return n;
+  if (n < 16) return vbm_simd_find_scalar(p, n, i, s);
+  /* 0 < n - i < 16: the last 16 bytes of the array (all inside it); the nibbles of the bytes before i are shifted out */
+  uint64_t m = vbm_simd_members16_neon(p + n - 16, s) >> (4 * (16 - (n - i)));
+  return m ? i + ((size_t)__builtin_ctzll(m) >> 2) : n;
+}
+static inline uint8_t vbm_simd_has_avx2(lean_obj_arg u) { (void)u; return 0; }
+static inline size_t vbm_simd_find_avx2(b_lean_obj_arg a, uint32_t s, size_t i) { return vbm_simd_find_scalar(lean_sarray_cptr(a), lean_sarray_size(a), i, s); }
+static inline size_t vbm_simd_find_neon(b_lean_obj_arg a, uint32_t s, size_t i) { return vbm_simd_find_neon_n(lean_sarray_cptr(a), lean_sarray_size(a), i, s); }
+/* T12 on NEON: the membership masks of the block at i; as the AVX2 body, with 16-byte vectors (four loads). */
+static inline uint64_t vbm_simd_members64_neon(const uint8_t *p, uint32_t s) {
+  vbm_n8 c0 = vbm_neon_dup((uint8_t)s), c1 = vbm_neon_dup((uint8_t)(s >> 8)), c2 = vbm_neon_dup((uint8_t)(s >> 16)), c3 = vbm_neon_dup((uint8_t)(s >> 24));
+  vbm_n8 x0 = vbm_neon_ld16(p), x1 = vbm_neon_ld16(p + 16), x2 = vbm_neon_ld16(p + 32), x3 = vbm_neon_ld16(p + 48);
+  vbm_n8 e0 = (x0 == c0) | (x0 == c1) | (x0 == c2) | (x0 == c3), e1 = (x1 == c0) | (x1 == c1) | (x1 == c2) | (x1 == c3);
+  vbm_n8 e2 = (x2 == c0) | (x2 == c1) | (x2 == c2) | (x2 == c3), e3 = (x3 == c0) | (x3 == c1) | (x3 == c2) | (x3 == c3);
+  return vbm_neon_mask64(e0, e1, e2, e3);
+}
+static inline uint64_t vbm_simd_inset64_neon_n(const uint8_t *p, size_t n, size_t i, uint32_t s) {
+  if (i >= n) return 0;
+  size_t r = n - i;
+  if (r >= 64) return vbm_simd_members64_neon(p + i, s);
+  if (n < 64) return vbm_simd_inset64_scalar(p, n, i, s);
+  return vbm_simd_members64_neon(p + n - 64, s) >> (64 - r);
+}
+static inline uint64_t vbm_simd_inset64(b_lean_obj_arg a, size_t i, uint32_t s) { return vbm_simd_inset64_neon_n(lean_sarray_cptr(a), lean_sarray_size(a), i, s); }
+/* T14 on NEON: `p` has 64 readable bytes, `t` 32. The two nibble tables are one 16-byte register each; the low nibble is `x & 15`, the high nibble `x >> 4` (an 8-bit shift), each the index of a byte lookup (`tbl`), the class bits
+ * the and of the two. A mask is `(class & m) != 0` per byte (`cmtst`), packed by `vbm_neon_mask64`. */
+static inline void vbm_simd_class_words_neon(const uint8_t *p, const uint8_t *t, uint32_t ms, uint64_t w[4]) {
+  vbm_n8 lo = vbm_neon_ld16(t), hi = vbm_neon_ld16(t + 16), nib = vbm_neon_dup(15);
+  vbm_n8 c[4];
+  for (int h = 0; h < 4; h++) { vbm_n8 x = vbm_neon_ld16(p + 16 * h); c[h] = vbm_neon_tbl(lo, x & nib) & vbm_neon_tbl(hi, x >> 4); }
+  for (int k = 0; k < 4; k++) {
+    vbm_n8 m = vbm_neon_dup((uint8_t)(ms >> (8 * k)));
+    w[k] = vbm_neon_mask64((c[0] & m) != 0, (c[1] & m) != 0, (c[2] & m) != 0, (c[3] & m) != 0);
+  }
+}
+static __attribute__((noinline)) lean_obj_res vbm_simd_classify64_neon_n(const uint8_t *p, size_t n, size_t i, const uint8_t *t, uint32_t ms, lean_obj_arg out) {
+  uint64_t w[4];
+  if (i < n && n - i >= 64) vbm_simd_class_words_neon(p + i, t, ms, w); else vbm_simd_class_words_scalar(p, n, i, t, ms, w);
+  return vbm_simd_put4(out, w[0], w[1], w[2], w[3]);
+}
+static inline lean_obj_res vbm_simd_classify64(b_lean_obj_arg a, size_t i, b_lean_obj_arg tb, uint32_t ms, lean_obj_arg out) {
+  uint8_t pad[32] = {0};
+  const uint8_t *t = lean_sarray_cptr(tb);
+  size_t ts = lean_sarray_size(tb);
+  if (ts < 32) { for (size_t j = 0; j < ts; j++) pad[j] = t[j]; t = pad; }
+  return vbm_simd_classify64_neon_n(lean_sarray_cptr(a), lean_sarray_size(a), i, t, ms, out);
+}
 #else
+static inline size_t vbm_simd_find_neon(b_lean_obj_arg a, uint32_t s, size_t i) { return vbm_simd_find_scalar(lean_sarray_cptr(a), lean_sarray_size(a), i, s); }
 static inline uint8_t vbm_simd_has_avx2(lean_obj_arg u) { (void)u; return 0; }
 static inline size_t vbm_simd_find_avx2(b_lean_obj_arg a, uint32_t s, size_t i) { return vbm_simd_find_scalar(lean_sarray_cptr(a), lean_sarray_size(a), i, s); }
 static inline uint64_t vbm_simd_inset64(b_lean_obj_arg a, size_t i, uint32_t s) { return vbm_simd_inset64_scalar(lean_sarray_cptr(a), lean_sarray_size(a), i, s); }
