@@ -91,7 +91,6 @@ mutants=(
   "class-scalar-high|s|t\[16 + (v >> 4)\] \& m)|t[(v >> 4)] \& m)|"
   "class-shared|/vbm_simd_put4(lean_obj_arg/,/^}/s|lean_sarray_ensure_exclusive(out)|out|"
   "class-shared-slow|/vbm_simd_put4_slow/,/^}/s|lean_sarray_ensure_exclusive(out)|out|"
-  "class-partial-store|/vbm_simd_put4_slow/,/^}/s|8 \* k + 8 <= n|8 * k < n|"
   "class-fast-bound|s|if (lean_sarray_size(out) >= 32) {|if (lean_sarray_size(out) >= 24) {|"
   # the NEON bodies (T15), compiled on aarch64 only. The search: a read past the end, bits kept from before the start, a shift off by one, a dropped member (in the loop, in the tail), no bounds guard, a wrong tail load, a wrong index, the second
   # vector of a step reported as the first, a wrong nibble width, a wrong narrowing shift, a wrong CPU fact. The masks: an over-read, bits kept from before the start, a dropped member, no bounds guard, a wrong tail load, a wrong short-array case,

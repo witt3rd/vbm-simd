@@ -128,7 +128,7 @@ static __attribute__((noinline)) lean_obj_res vbm_simd_put4_slow(lean_obj_arg ou
   if (n < 8) return out;
   lean_object *r = lean_sarray_ensure_exclusive(out);
   uint8_t *q = lean_sarray_cptr(r);
-  for (size_t k = 0; k < 4 && 8 * k + 8 <= n; k++) __builtin_memcpy(q + 8 * k, &w[k], 8);
+  if (n >= 8) __builtin_memcpy(q, &w[0], 8); if (n >= 16) __builtin_memcpy(q + 8, &w[1], 8); if (n >= 24) __builtin_memcpy(q + 16, &w[2], 8); if (n >= 32) __builtin_memcpy(q + 24, &w[3], 8);   /* unrolled: a loop here is turned into a libc memcpy call */
   return r;
 }
 static inline lean_obj_res vbm_simd_put4(lean_obj_arg out, uint64_t w0, uint64_t w1, uint64_t w2, uint64_t w3) {
