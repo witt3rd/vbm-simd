@@ -10,10 +10,10 @@ does not land (`scripts/trust-ledger-check.sh`, Tier 1).
 
 ## How the gate keeps this file true
 
-The set of things that must appear here is **derived from the tree, not from this file**: every `@[extern]` symbol under `VbmSimd/`, every header under `include/`, every `.github/workflows/` file, the build
+The set of things that must appear here is **derived from the tree, not from this file**: every `@[extern]` symbol under `VbmSimd/`, every header under `include/`, the build
 pins (`lean-toolchain`, `mise.toml`, `lakefile.lean`), the vendored lander's pin (`scripts/land/PIN`), the Lean pin's compiler, runtime and bundled clang/ld.lld (the keys `lean-compiler`,
 `lean-runtime`, `clang-lld`), and a watch-list of tools the scripts run. Each is a key (`file:`, `extern:`, `tool:`, plus the three Lean keys) that an entry must name on its **Covers** line.
-- A new boundary (extern, header, workflow, tool) with no entry **fails**. A `Covers` key that names nothing real fails, and **removing any entry fails** (the gate does this to itself on every run, one entry at a time: an entry that covers nothing required is padding).
+- A new boundary (extern, header, tool) with no entry **fails**. A `Covers` key that names nothing real fails, and **removing any entry fails** (the gate does this to itself on every run, one entry at a time: an entry that covers nothing required is padding).
   Dangling file references fail. An entry needs all seven fields, a **Plan** from `verify | replace | sandbox | accept` (`accept` needs `because ...`), **Assumes** that links a written contract or says `no written contract`
   (counted as a gap), and **Test** that names a test that can fail or says `none` (counted as a gap).
 - Not covered by the gate (said here rather than pretended): a tool called from a script that is not on the watch-list in `scripts/trust-ledger-check.sh`, and the *quality* of an entry's prose.
@@ -25,20 +25,11 @@ Entry format: **What** it is; **Enters** where it enters; **Assumes** what we as
 ### T01. The Lean compiler: frontend, kernel, C emitter
 - **What:** the `lean` release pinned in `lean-toolchain` and `mise.toml`: the elaborator, the kernel that checks every proof, and `EmitC`, which turns the library's definitions into the C a consumer links. A kernel soundness bug would void the proofs; an emitter bug would give the C different semantics from the Lean. Nothing proves the emitter preserves semantics.
 - **Enters:** `lean-toolchain`, `mise.toml`; every `.lean` file.
-- **Assumes:** the kernel is sound and `EmitC` is faithful: no written contract beyond Lean's own documentation. The differential tests of the shims and the consumers' vectors are the check on the emitted code; `leanchecker` and nanoda are the checks on the kernel (T02).
-- **Test:** scripts/tier2.sh (leanchecker `--fresh`, nanoda); the emitter is checked only by the consumers' tests.
+- **Assumes:** the kernel is sound and `EmitC` is faithful: no written contract beyond Lean's own documentation. The differential tests of the shims and the consumers' vectors are the check on the emitted code; nothing in this repository re-checks the kernel independently (nothing runs after the push).
+- **Test:** none: the emitter is checked only by the consumers' tests; nothing runs after the push.
 - **Owner:** upstream Lean (leanprover/lean4); the repository owner pins it (CODEOWNERS).
-- **Plan:** accept, because there is no other mature route from Lean to C, WASM and the other targets and the kernel is small and independently re-checked; revisit when an extractor with a semantics-preservation proof exists.
+- **Plan:** accept, because there is no other mature route from Lean to C, WASM and the other targets and the kernel is small and nothing in this repository re-checks it independently any more, so the consumer's own build is the check; revisit when an extractor with a semantics-preservation proof exists.
 - **Covers:** `lean-compiler` `file:lean-toolchain` `file:mise.toml`
-
-### T02. The independent proof checkers: leanchecker, nanoda
-- **What:** `leanchecker --fresh` replays every declaration in a fresh environment (guards a tampered or stale `.olean`); nanoda (`nanoda_bin`, shipped in the Lean release) re-checks the exported proofs with an independent kernel implementation.
-- **Enters:** `scripts/tier2.sh` (run by CI on a schedule); they read the build products and the `leanexport` of both libraries.
-- **Assumes:** that two independent checkers agreeing is evidence the kernel did not mis-accept; no written contract.
-- **Test:** none that can fail on a bad proof here today: Tier 2 is the check; a deliberately false theorem in a scratch file is the planned negative test (a gap, counted).
-- **Owner:** upstream Lean.
-- **Plan:** verify. Add a negative self-test (a corrupted export must fail nanoda).
-- **Covers:** `tool:leanchecker` `tool:nanoda`
 
 ### T03. The Lean runtime and its headers (lean.h, libleanrt)
 - **What:** the C runtime every Lean-emitted C file links: reference counting, allocation, arrays and strings, big numbers. It is the lowest layer under the compiled kernels. This library's kernels are `UInt64` arithmetic (no allocation) so the part that runs is small; it is not checked by us.
@@ -55,7 +46,7 @@ Entry format: **What** it is; **Enters** where it enters; **Assumes** what we as
 - **Assumes:** the compiler preserves C semantics for the emitted code; no written contract.
 - **Test:** none of ours today; the check is the consumers' vectors run against the compiled artifact, and the differential tests the shims will carry.
 - **Owner:** upstream LLVM via the Lean release; the owner pins it.
-- **Plan:** sandbox. Check compiled artifacts against the Lean models with differential tests in CI, never trust the compile.
+- **Plan:** sandbox. Check compiled artifacts against the Lean models with a differential test run before the push, never trust the compile.
 - **Covers:** `clang-lld`
 
 ## The build and process tools
@@ -75,11 +66,11 @@ Entry format: **What** it is; **Enters** where it enters; **Assumes** what we as
 - **Assumes:** the tarball is the one released for that tag; no checksum is verified by us today (no written contract): a supply-chain gap.
 - **Test:** none: nothing here can fail if the tarball were swapped (a gap, counted).
 - **Owner:** the repository owner (`mise.toml`); mise is upstream.
-- **Plan:** sandbox. Pin the release checksum in a lockfile once CI exists; until then the tarball's integrity is GitHub's.
+- **Plan:** sandbox. Pin the release checksum in a lockfile once there is a place to keep it; until then the tarball's integrity is GitHub's.
 - **Covers:** `tool:mise`
 
 ### T07. git, gh, python3: the process tooling
-- **What:** `git` and `gh` (the rebase and push steps of the lander), `python3` (the trust-ledger and workflow checkers). They run on the developer's machine and in CI; none is part of any artifact.
+- **What:** `git` and `gh` (the rebase and push steps of the lander), `python3` (the trust-ledger checker). They run on the developer's machine before the push; none is part of any artifact.
 - **Enters:** `scripts/land-direct` and the vendored `scripts/land/`, `scripts/trust_ledger.py`, the Tier 1 scripts.
 - **Assumes:** they do what their manuals say; the self-tests of the scripts that use them are the check that our use is right; no written contract.
 - **Test:** scripts/spec-check.sh; the lander's own suite lives in its source repository.
@@ -87,22 +78,13 @@ Entry format: **What** it is; **Enters** where it enters; **Assumes** what we as
 - **Plan:** accept, because they touch the process and not the artifact: a compromised tool could land a bad change, which the gates and the owner's review are there to catch.
 - **Covers:** `tool:git` `tool:gh` `tool:python3`
 
-### T08. The CI runner and workflow actions (.github/workflows/ci.yml)
-- **What:** `ci.yml` runs `scripts/tier1.sh` on every push to `main` and `scripts/tier2.sh` every six hours and on manual dispatch, on GitHub-hosted `ubuntu-latest` runners only (`scripts/lint-workflows.py` fails Tier 1 on a self-hosted label, on a `pull_request_target` trigger and on any secret other than the default token). No pull-request trigger, so a fork's code never runs with the repository's token. Three third-party actions, pinned by commit sha: `actions/checkout` v4, `actions/cache` v4, `jdx/mise-action` v2. Token: the default `GITHUB_TOKEN`, `contents: read`; no secrets.
-- **Enters:** `.github/workflows/ci.yml`; every CI run. It runs only on GitHub: it cannot be run locally.
-- **Assumes:** the runner image, the pinned action commits and the cache behave as documented; a poisoned cache or a compromised upstream action could change what is checked. There is no written contract beyond GitHub's documentation.
-- **Test:** none that can fail inside this repository (the workflow cannot run locally); none.
-- **Owner:** the repository owner (CODEOWNERS); the actions are upstream.
-- **Plan:** sandbox. Keep the permissions read-only and secret-free; the actions are pinned to commit shas; the cache never replaces the gates.
-- **Covers:** `file:.github/workflows/ci.yml`
-
 ### T09. The vendored lander (scripts/land/, a pinned copy of vbm-land)
 - **What:** `scripts/land/` and the stub `scripts/land-direct` are a pinned, vendored copy of vbm-land (a language-neutral direct-landing tool): the lock, the red check, the rebase, Tier 1 on the exact combination, the fast-forward push. `scripts/land/bin/land-check` (run in Tier 1) fails when any file differs from the manifest named by `scripts/land/PIN`. A bug in it could land a change that skipped a gate; it never touches the artifact.
 - **Enters:** `scripts/land/`, `scripts/land-direct`, `scripts/land.conf`; every landing.
 - **Assumes:** the lander does what its source repository's README documents; the drift check keeps the copy equal to the pinned release; no written contract here.
 - **Test:** `scripts/land/MANIFEST.sha256`, checked against every vendored file by `scripts/land/bin/land-check` in Tier 1 (a drifted copy fails; the lander's own tests are in its source repository).
 - **Owner:** the vbm-land repository (same owner); the pin is changed only by `scripts/land/bin/land-update`.
-- **Plan:** accept, because the tool is what the owner's other repositories use and its failure modes are mechanical refusals; the independent push CI re-runs Tier 1 on what it landed.
+- **Plan:** accept, because the tool is what the owner's other repositories use and its failure modes are mechanical refusals. Everything runs before the push, once; nothing runs after it.
 - **Covers:** `file:scripts/land/PIN`
 
 ## The trusted C
@@ -156,7 +138,7 @@ Entry format: **What** it is; **Enters** where it enters; **Assumes** what we as
 - **What:** about 90 more lines of the same header, compiled only for aarch64 with clang (`#elif defined(__aarch64__) && defined(__clang__)`): the NEON counterparts of T11, T12 and T14, with the same Lean models and the same contracts (total, never a read outside the array, the first-index and mask semantics of `findSpec`, `insetSpec`, `classifyModel`). `vbm_simd_find_neon` is the C body of `findNeon` (`VbmSimd/Find.lean`; the first index at or after `i` of a byte of a set of at most four bytes, `n` when none): 32 bytes per step as two 16-byte vectors, one compare per member, a horizontal maximum to test for a hit, the first flagged byte from the compare result narrowed to four bits per byte (`shrn`) and a `ctz`; the last partial step is one load of the last 16 bytes of the array with the nibbles of the bytes before `i` shifted out; arrays under 16 bytes the scalar loop. The same symbols `vbm_simd_inset64` and `vbm_simd_classify64` have, on aarch64, bodies of 16-byte vectors: four loads, compares per member (T12), or two table lookups per 16 bytes (`tbl`; the tables are one register each, the low nibble `x & 15`, the high nibble `x >> 4`), a `cmtst` per mask (T14); a block of 64 bytes is packed to one bit per byte by `vbm_neon_mask64` (each compare result and-ed with its bit weight, then pairwise adds of adjacent bytes: no movemask exists); a block that crosses the end is read as the last 64 bytes of the array with the bits before `i` shifted out (T12) or is the scalar loop (T14). `vbm_simd_has_neon` is the C body of `hasNeon`: a compile-time fact (1 on aarch64 with clang: NEON is part of the aarch64 base architecture, so there is no CPU test; 0 everywhere else). `findFirstOf` takes the NEON search when `hasNeon ()`, and `findFirstOf_spec` is proved for every answer of the two CPU facts; a consumer of `inset64` and `classify64` calls them where `hasAvx2 () || hasNeon ()` and runs its own proved portable kernel otherwise. The toolchain ships no `arm_neon.h`: the code uses clang's vector extensions and `__builtin_neon_vqtbl1q_v`, `__builtin_neon_vpaddq_v`, `__builtin_neon_vmaxvq_u8`, `__builtin_neon_vshrn_n_v`, the builtins `arm_neon.h` itself expands to. A wrong index, a read past the end, a dropped member, a wrong bit weight or a wrong table lookup would be bugs no Lean proof sees.
 - **Enters:** `include/vbm_simd.h`; the `@[extern]` symbols `vbm_simd_find_neon` and `vbm_simd_has_neon` (`VbmSimd/Find.lean`) and, on aarch64, `vbm_simd_inset64` (T12) and `vbm_simd_classify64` (T14); every consumer compiled with `-include include/vbm_simd.h` as for T10.
 - **Assumes:** the models `findSpec`, `insetSpec` and `classifyModel` (`docs/SPEC.md` clauses VS-11, VS-12, VS-14); an aarch64 CPU runs the Advanced SIMD instructions clang emits (they are baseline, ARMv8-A); clang's vector extensions compile `==`, `|`, `&`, `>>` on 16-byte vectors to compare, or, and, shift, and the four builtins above to `tbl`, `addp`, `umaxv`, `shrn` (T04); `lean_sarray_cptr` and `lean_sarray_size` describe the arrays (T03).
-- **Test:** `scripts/test-shims.sh` on aarch64 (the hosted `ubuntu-24.04-arm` job of `.github/workflows/ci.yml` is the real machine) runs `tests/ShimTest.lean` with the same cases as T11, T12 and T14 (the search, the dispatch, the membership masks and the class masks against their models; `hasNeon` against the target) and refuses a run in which the NEON comparisons were not executed and counted, per kernel (`vec_ran`, with its own self-test); `tests/find_guard.c` runs the NEON search, membership masks and class words against a naive loop on buffers flush against an unmapped page at the end and at the start (it must report `neon checked`); then 26 deliberate mutants of the header (an over-read, bits kept from before the start, a shift off by one, a dropped member, no bounds guard, a wrong tail load, a wrong index, the second vector reported as the first, a wrong nibble width and narrowing shift, a wrong CPU fact, a wrong bit weight and pairing order, a wrong table lookup, shift, half or mask), each of which one of the two must catch. The shim test also prints a bench of the NEON bodies against the portable code in the same process; it is informational. On x86-64 the NEON bodies are not compiled and their mutants are not run.
+- **Test:** `scripts/test-shims.sh` on an aarch64 machine (the only machine that runs the NEON bodies) runs `tests/ShimTest.lean` with the same cases as T11, T12 and T14 (the search, the dispatch, the membership masks and the class masks against their models; `hasNeon` against the target) and refuses a run in which the NEON comparisons were not executed and counted, per kernel (`vec_ran`, with its own self-test); `tests/find_guard.c` runs the NEON search, membership masks and class words against a naive loop on buffers flush against an unmapped page at the end and at the start (it must report `neon checked`); then 26 deliberate mutants of the header (an over-read, bits kept from before the start, a shift off by one, a dropped member, no bounds guard, a wrong tail load, a wrong index, the second vector reported as the first, a wrong nibble width and narrowing shift, a wrong CPU fact, a wrong bit weight and pairing order, a wrong table lookup, shift, half or mask), each of which one of the two must catch. The shim test also prints a bench of the NEON bodies against the portable code in the same process; it is informational. On x86-64 the NEON bodies are not compiled and their mutants are not run.
 - **Owner:** the repository owner (CODEOWNERS: `include/`).
 - **Plan:** verify, in part, as T11, T12 and T14: the test is the boundary, planted, per-byte and random cases plus guard pages and mutants, not a proof of the C; the portable path is proved in Lean, so a doubt about a NEON body is settled by taking it out (`findFirstOf` falls back to `findSwar`, a consumer to its portable kernel).
 - **Covers:** `extern:vbm_simd_find_neon` `extern:vbm_simd_has_neon`

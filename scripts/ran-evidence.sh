@@ -17,7 +17,7 @@ case "${1:-}" in
   check)
     name=${2:?name}; log=${3:?log}; [ -f "$log" ] || bad "$name: no log"
     skipped=0; if grep -qE '(^|[^A-Za-z])SKIPPED' "$log"; then skipped=1
-      [ "${VBM_ALLOW_SKIP:-0}" = 1 ] || bad "$name: it reports SKIPPED: a skipped check is a failure, never a pass (VBM_ALLOW_SKIP=1 only on a box that lacks an optional tool; Tier 2 requires every tool)"
+      [ "${VBM_ALLOW_SKIP:-0}" = 1 ] || bad "$name: it reports SKIPPED: a skipped check is a failure, never a pass (VBM_ALLOW_SKIP=1 only on a box that lacks an optional tool; the gate requires every tool)"
       echo "ran-evidence: $name: SKIPPED part allowed by VBM_ALLOW_SKIP=1 (NOT RUN)" >&2
     fi
     total=0; seen=0

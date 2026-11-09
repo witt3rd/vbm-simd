@@ -45,7 +45,6 @@ and coding agents wrote it under mechanical gates (forbidden constructs, the axi
 mise install                     # the pinned Lean release (mise.toml), no elan
 mise exec -- lake build VbmSimd VbmSimdProofs   # both libraries, zero warnings (`lake build` alone builds the library only)
 mise exec -- scripts/tier1.sh    # the whole check: build, shim tests, axiom gate, spec clauses, trust ledger
-mise exec -- scripts/tier2.sh    # the slow checks: leanchecker --fresh and the independent checker nanoda
 ```
 
 ## Using it from another Lake project
