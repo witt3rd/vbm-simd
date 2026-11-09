@@ -11,8 +11,8 @@ ulimit -c 0   # a mutant may crash on purpose: no core file
 stale() { rm -f "$1"/.lake/build/ir/ShimTest.c.o.* "$1"/.lake/build/ir/VbmSimd/*.c.o.* "$1"/.lake/build/ir/VbmSimd.c.o.* "$1"/.lake/build/bin/shim-test 2>/dev/null || true; }
 stale .
 lake build shim-test
-# Crash probes (the mutants crash on purpose) run through the vendored lander's run-probe: ulimit -c 0 PLUS the dumpable-clear preload, so a crash leaves no core and no crash record (scripts/land/docs/crash-probes.md).
-probe="$PWD/scripts/land/bin/run-probe"
+# Crash probes (the mutants crash on purpose) run through the vendored lander's run-probe: ulimit -c 0 PLUS the dumpable-clear preload, so a crash leaves no core and no crash record (.land/tool/docs/crash-probes.md).
+probe="$PWD/.land/tool/bin/run-probe"
 "$probe" true || { echo "test-shims: run-probe is refused or unusable: no mutant can be run" >&2; exit 1; }
 # The vector bodies must have RUN: on a CPU that has AVX2 (and always on x86-64 CI) the test reports a non-zero number of its AVX2 comparisons, on aarch64 (NEON is baseline there, and CI is the real machine) a non-zero number of its NEON ones;
 # a run that skipped them proves nothing about the shim, so it fails. The reports are counted per kernel: the search, the membership masks, the class masks.

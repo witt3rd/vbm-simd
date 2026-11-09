@@ -4,7 +4,7 @@ Thank you for looking. A short, honest note about how this repository works.
 
 ## Who lands changes
 
-**Only the owner lands changes on `main`.** The repository lands directly, through a gate (`scripts/land-direct`, a pinned copy of [vbm-land](https://github.com/witt3rd/vbm-land)): no pull request is ever merged in the GitHub sense. That is the project's model (see [`AGENTS.md`](AGENTS.md)), not a lack of interest in your work.
+**Only the owner lands changes on `main`.** The repository lands directly, through a gate (`.land/land-direct`, a pinned copy of [vbm-land](https://github.com/witt3rd/vbm-land)): no pull request is ever merged in the GitHub sense. That is the project's model (see [`AGENTS.md`](AGENTS.md)), not a lack of interest in your work.
 
 **Outside contributions are welcome**: open an issue, or a pull request from a fork. The owner reads it, and if the change is accepted it lands through the lander as a commit (your authorship is kept where the change is applied as is; otherwise the commit says where it came from). A pull request is a proposal, and may be closed with the change landed separately.
 

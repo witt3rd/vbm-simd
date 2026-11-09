@@ -11,7 +11,7 @@ does not land (`scripts/trust-ledger-check.sh`, Tier 1).
 ## How the gate keeps this file true
 
 The set of things that must appear here is **derived from the tree, not from this file**: every `@[extern]` symbol under `VbmSimd/`, every header under `include/`, the build
-pins (`lean-toolchain`, `mise.toml`, `lakefile.lean`), the vendored lander's pin (`scripts/land/PIN`), the Lean pin's compiler, runtime and bundled clang/ld.lld (the keys `lean-compiler`,
+pins (`lean-toolchain`, `mise.toml`, `lakefile.lean`), the vendored lander's pin (`.land/PIN`), the Lean pin's compiler, runtime and bundled clang/ld.lld (the keys `lean-compiler`,
 `lean-runtime`, `clang-lld`), and a watch-list of tools the scripts run. Each is a key (`file:`, `extern:`, `tool:`, plus the three Lean keys) that an entry must name on its **Covers** line.
 - A new boundary (extern, header, tool) with no entry **fails**. A `Covers` key that names nothing real fails, and **removing any entry fails** (the gate does this to itself on every run, one entry at a time: an entry that covers nothing required is padding).
   Dangling file references fail. An entry needs all seven fields, a **Plan** from `verify | replace | sandbox | accept` (`accept` needs `because ...`), **Assumes** that links a written contract or says `no written contract`
@@ -71,21 +71,21 @@ Entry format: **What** it is; **Enters** where it enters; **Assumes** what we as
 
 ### T07. git, gh, python3: the process tooling
 - **What:** `git` and `gh` (the rebase and push steps of the lander), `python3` (the trust-ledger checker). They run on the developer's machine before the push; none is part of any artifact.
-- **Enters:** `scripts/land-direct` and the vendored `scripts/land/`, `scripts/trust_ledger.py`, the Tier 1 scripts.
+- **Enters:** `.land/land-direct` and the vendored `.land/tool/`, `scripts/trust_ledger.py`, the Tier 1 scripts.
 - **Assumes:** they do what their manuals say; the self-tests of the scripts that use them are the check that our use is right; no written contract.
 - **Test:** scripts/spec-check.sh; the lander's own suite lives in its source repository.
 - **Owner:** upstream tools; the repository owner approves the scripts (CODEOWNERS).
 - **Plan:** accept, because they touch the process and not the artifact: a compromised tool could land a bad change, which the gates and the owner's review are there to catch.
 - **Covers:** `tool:git` `tool:gh` `tool:python3`
 
-### T09. The vendored lander (scripts/land/, a pinned copy of vbm-land)
-- **What:** `scripts/land/` and the stub `scripts/land-direct` are a pinned, vendored copy of vbm-land (a language-neutral direct-landing tool): the lock, the red check, the rebase, Tier 1 on the exact combination, the fast-forward push. `scripts/land/bin/land-check` (run in Tier 1) fails when any file differs from the manifest named by `scripts/land/PIN`. A bug in it could land a change that skipped a gate; it never touches the artifact.
-- **Enters:** `scripts/land/`, `scripts/land-direct`, `scripts/land.conf`; every landing.
+### T09. The vendored lander (.land/tool/, a pinned copy of vbm-land)
+- **What:** `.land/tool/` and the stub `.land/land-direct` are a pinned, vendored copy of vbm-land (a language-neutral direct-landing tool): the lock, the red check, the rebase, Tier 1 on the exact combination, the fast-forward push. `.land/tool/bin/land-check` (run in Tier 1) fails when any file differs from the manifest named by `.land/PIN`. A bug in it could land a change that skipped a gate; it never touches the artifact.
+- **Enters:** `.land/tool/`, `.land/land-direct`, `.land/land.conf`; every landing.
 - **Assumes:** the lander does what its source repository's README documents; the drift check keeps the copy equal to the pinned release; no written contract here.
-- **Test:** `scripts/land/MANIFEST.sha256`, checked against every vendored file by `scripts/land/bin/land-check` in Tier 1 (a drifted copy fails; the lander's own tests are in its source repository).
-- **Owner:** the vbm-land repository (same owner); the pin is changed only by `scripts/land/bin/land-update`.
+- **Test:** `.land/tool/MANIFEST.sha256`, checked against every vendored file by `.land/tool/bin/land-check` in Tier 1 (a drifted copy fails; the lander's own tests are in its source repository).
+- **Owner:** the vbm-land repository (same owner); the pin is changed only by `.land/tool/bin/land-update`.
 - **Plan:** accept, because the tool is what the owner's other repositories use and its failure modes are mechanical refusals. Everything runs before the push, once; nothing runs after it.
-- **Covers:** `file:scripts/land/PIN`
+- **Covers:** `file:.land/PIN`
 
 ## The trusted C
 
