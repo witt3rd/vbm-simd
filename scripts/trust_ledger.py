@@ -8,7 +8,7 @@ and each removal must fail (an entry that covers nothing required is padding and
 import os, re, sys
 FIELDS = ["What", "Enters", "Assumes", "Test", "Owner", "Plan", "Covers"]
 PLANS = ("verify", "replace", "sandbox", "accept")
-PATH = re.compile(r"(?<!\w)(?:\.land|scripts|include|VbmSimd|VbmSimdProofs|tests|docs)/[\w./-]*\w\.\w+")
+PATH = re.compile(r"\b(?:scripts|include|VbmSimd|VbmSimdProofs|tests|docs)/[\w./-]*\w\.\w+")
 
 def parse(text):
     entries, cur, fld = [], None, None
