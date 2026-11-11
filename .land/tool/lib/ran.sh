@@ -1,6 +1,6 @@
-# Sourced library: ran-evidence for the self-tests (docs/decisions/0002-ran-evidence.md). A check that treats "the command failed" or "no output" as success passes when the thing
+# Sourced library: ran-evidence for the self-tests (docs/ran-evidence.md). A check that treats "the command failed" or "no output" as success passes when the thing
 # under test never ran (a guard refused `lake`, a tool was missing, a script exited early). The class fix: every test script counts the cases it really executed and ends with ONE line
-#     ran: NAME: N cases              (N > 0; scripts/ran-evidence.sh is the reader: the runners fail a script or gate that does not print it)
+#     ran: NAME: N cases              (N > 0; bin/ran-evidence is the reader: the runners fail a script or gate that does not print it)
 # and a refusal, a skip or an exit by a guard is a FAIL, never a pass.
 #   ran_case            count one executed case (a check that was evaluated and held). File-backed ($RAN_LOG), so cases in subshells and background jobs count.
 #   ran_done NAME       print the evidence line; fails (exit 1) when no case ran.

@@ -10,7 +10,7 @@
 set -euo pipefail
 export LC_ALL=C
 here=$(cd "$(dirname "$0")" && pwd)
-. "$here/../lib/paths.sh"; . "$here/../lib/treehash.sh"
+. "$here/../lib/paths.sh"; . "$here/../lib/verify.sh"
 root=${LAND_PIN_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}
 die() { echo "land-pin: $*" >&2; exit 2; }
 refuse() { echo "land-pin: REFUSED $*" >&2; exit 1; }
@@ -67,22 +67,15 @@ verify() {
 
 vendor() {
   [ $# = 3 ] || die "usage: land-pin vendor NAME URL TAG"
-  local name=$1 url=$2 tag=$3 signers=$root/$LAND_SIGNERS_FILE dest=$root/$LAND_VENDOR_DIR/$1 f=$root/$LAND_PINS_FILE msg want rev got
+  local name=$1 url=$2 tag=$3 signers=$root/$LAND_SIGNERS_FILE dest=$root/$LAND_VENDOR_DIR/$1 f=$root/$LAND_PINS_FILE rev want
   [[ $name =~ ^[a-z0-9][a-z0-9_-]*$ ]] || die "bad name '$name'"
   [[ $tag =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "the tag must be vX.Y.Z, got '$tag'"
   [[ $url =~ ^[^[:space:]]+$ ]] || die "bad url"
-  [ -s "$signers" ] || refuse "no signers file ($LAND_SIGNERS_FILE): a release signature cannot be checked"
   scratch=$(mktemp -d); git init -q "$scratch/r"
   git -C "$scratch/r" fetch -q --depth 1 "$url" "refs/tags/$tag:refs/tags/$tag" 2>/dev/null || refuse "cannot fetch the tag $tag from $url"
-  [ "$(git -C "$scratch/r" cat-file -t "refs/tags/$tag")" = tag ] || refuse "$tag is not an annotated tag"
-  git -c gpg.format=ssh -c "gpg.ssh.allowedSignersFile=$signers" -C "$scratch/r" verify-tag "$tag" >/dev/null 2>&1 || refuse "$tag is not signed by a key in $LAND_SIGNERS_FILE"
-  msg=$(git -C "$scratch/r" tag -l --format='%(contents)' "$tag")
-  want=$(printf '%s\n' "$msg" | sed -n -E 's/^tree_sha256=([0-9a-f]{64})$/\1/p')
-  [ "$(printf '%s\n' "$want" | grep -c .)" = 1 ] || refuse "the message of $tag does not record exactly one tree_sha256="
+  mkdir "$scratch/x"
+  want=$(src_check_tag "$scratch/r" "$tag" "$signers" "$scratch/x") || exit 1   # the one verifier (lib/verify.sh): it prints why it refused
   rev=$(git -C "$scratch/r" rev-parse "refs/tags/$tag^{commit}")
-  mkdir "$scratch/x"; export_commit "$scratch/r" "$rev" "$scratch/x"
-  got=$(tree_hash "$scratch/x" 2>&1) || refuse "the exported tree of $tag cannot be hashed: $got"
-  [ "$got" = "$want" ] || refuse "the exported tree of $tag hashes to $got, its signed message says $want"
   mkdir -p "$root/$LAND_VENDOR_DIR" "$(dirname "$f")"; rm -rf "$dest"; mv "$scratch/x" "$dest"; touch "$f"
   awk -v n="$name" -v l="$name $url $tag $rev $want" '{ split($0, a, "#"); split(a[1], b, " "); if (b[1] == n) { if (!d) { print l; d = 1 }; next } print } END { if (!d) print l }' "$f" > "$f.new" && mv "$f.new" "$f"
   echo "land-pin: vendored $name $tag ($rev) into $LAND_VENDOR_DIR/$name"

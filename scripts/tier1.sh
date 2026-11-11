@@ -4,6 +4,8 @@
 # Run from the repo root: mise exec -- scripts/tier1.sh.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# 0. The vendored libraries are exactly their pins (this repository vendors none: the check still runs, so every repository has the same gate).
+.land/tool/bin/land-pin verify
 lean_sources() { find VbmSimd VbmSimdProofs -name '*.lean'; ls VbmSimd.lean VbmSimdProofs.lean; }
 # 1. Forbidden constructs in Lean sources; a comment may mention one only on a line marked `-- tier1-allow`.
 bad=$(grep -HnE '\b(sorry|admit|axiom|unsafe|implemented_by|csimp)\b' $(lean_sources) | grep -v 'tier1-allow' || true)

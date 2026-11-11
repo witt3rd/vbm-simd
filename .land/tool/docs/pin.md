@@ -70,7 +70,7 @@ directory (Lake builds a path dependency in place).
 
 ## 7. Build order (each a small change, tests first, each landing green)
 
-1. `lib/treehash.sh`, `land-pin tree` and `land-pin verify`, with the negative tests for them.
+1. `lib/verify.sh` (then `lib/treehash.sh`, merged into it by the one-verifier change), `land-pin tree` and `land-pin verify`, with the negative tests for them.
 2. `land-pin vendor`, with its negative tests (unsigned, unknown key, missing or disagreeing `tree_sha256=`).
 3. `land-pin online` and `list`; `land-release` records `tree_sha256=` and no longer requires vbm-land's own manifest
    for another repository; the skills and the README updated; a release.

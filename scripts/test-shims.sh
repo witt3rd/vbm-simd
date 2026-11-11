@@ -5,8 +5,8 @@
 set -euo pipefail
 export LC_ALL=C
 cd "$(dirname "$0")/.."
-# Scoped (scripts/run-scoped.sh, scripts/long-runners.txt): re-exec under a bounded transient scope, so an aborted run cannot orphan its builds.
-[ -n "${RUN_SCOPED_INNER:-}" ] || RUN_SCOPED_INNER=1 exec scripts/run-scoped.sh test-shims 1800 "$PWD/scripts/test-shims.sh" "$@"
+# Scoped (.land/tool/bin/run-scoped.sh, scripts/long-runners.txt): re-exec under a bounded transient scope, so an aborted run cannot orphan its builds.
+[ -n "${RUN_SCOPED_INNER:-}" ] || RUN_SCOPED_INNER=1 exec .land/tool/bin/run-scoped.sh test-shims 1800 "$PWD/scripts/test-shims.sh" "$@"
 ulimit -c 0   # a mutant may crash on purpose: no core file
 stale() { rm -f "$1"/.lake/build/ir/ShimTest.c.o.* "$1"/.lake/build/ir/VbmSimd/*.c.o.* "$1"/.lake/build/ir/VbmSimd.c.o.* "$1"/.lake/build/bin/shim-test 2>/dev/null || true; }
 stale .
@@ -39,7 +39,7 @@ done
 # The byte search against unmapped pages (tests/find_guard.c: any read outside the buffer is a SIGSEGV). Built with the toolchain's own compiler, from the include directory it is given.
 G=$(mktemp -d); leanc -O2 -I include tests/find_guard.c -o "$G/find_guard" && gout=$("$G/find_guard") && echo "$gout" || { rm -rf "$G"; echo "test-shims: the byte-search guard test failed" >&2; exit 1; }; rm -rf "$G"
 [ "$need_neon" = 0 ] || grep -q "neon checked" <<<"$gout" || { echo "test-shims: the guard test did not check the NEON bodies (required on aarch64)" >&2; exit 1; }
-. scripts/lib-reap.sh   # an abort or exit stops the mutant jobs by the pids held here (each job is its own process group: set -m); never by pattern
+. .land/tool/lib/reap.sh   # an abort or exit stops the mutant jobs by the pids held here (each job is its own process group: set -m); never by pattern
 pids=(); T=$(mktemp -d); trap 'reap_pids "${pids[@]}"; rm -rf "$T"' EXIT; trap 'exit 143' INT TERM HUP
 # mutant NAME 'sed expression'
 mutants=(

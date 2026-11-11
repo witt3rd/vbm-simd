@@ -7,7 +7,7 @@
 #   --push also pushes the tag (never a branch).
 set -euo pipefail
 export LC_ALL=C
-here=$(cd "$(dirname "$0")" && pwd); . "$here/../lib/treehash.sh"
+here=$(cd "$(dirname "$0")" && pwd); . "$here/../lib/verify.sh"
 root=$(git -C "$here" rev-parse --show-toplevel); cd "$root"
 push=0; [ "${1:-}" != --push ] || push=1
 key=${LAND_SIGNING_KEY:?set LAND_SIGNING_KEY to the ssh key that signs releases}

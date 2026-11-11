@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# The reader of ran-evidence (scripts/lib-ran.sh; docs/decisions/0002-ran-evidence.md). The line format is exactly
+# The reader of ran-evidence (lib/ran.sh; docs/ran-evidence.md). The line format is exactly
 #     ran: NAME: N cases              NAME = [A-Za-z0-9_.-]+, N = a positive integer
-#   scripts/ran-evidence.sh check NAME LOGFILE   exit 0 only when LOGFILE has at least one ran line and the sum of its N is > 0 and it holds no SKIPPED line (VBM_ALLOW_SKIP=1 lets a
+#   ran-evidence check NAME LOGFILE   exit 0 only when LOGFILE has at least one ran line and the sum of its N is > 0 and it holds no SKIPPED line (VBM_ALLOW_SKIP=1 lets a
 #                                                 SKIPPED line through with a loud note: a box without an optional tool; the ran line is still required of the rest of the script).
-#   scripts/ran-evidence.sh gate NAME REGEX CMD...   run CMD (a gate that prints its own count); its output is shown; the gate FAILS when CMD fails, or prints no line matching REGEX
+#   ran-evidence gate NAME REGEX CMD...   run CMD (a gate that prints its own count); its output is shown; the gate FAILS when CMD fails, or prints no line matching REGEX
 #                                                 (an ERE with ONE capture group, the number of cases it executed), or the number is 0; on success it prints `ran: NAME: N cases`.
-#   scripts/ran-evidence.sh check-dir DIR MAP    for every DIR/NAME.log (the captured output of a concurrent gate): when MAP (lines `NAME REGEX`) names NAME, the number REGEX captures in that log must be
+#   ran-evidence check-dir DIR MAP    for every DIR/NAME.log (the captured output of a concurrent gate): when MAP (lines `NAME REGEX`) names NAME, the number REGEX captures in that log must be
 #                                                 > 0 (the gate's own count, read after it ran; the line `ran: NAME: N cases` is printed); otherwise the log must carry a ran line (`check`). A log with neither fails.
 # A refused, skipped or guard-exited gate prints no count: it FAILS here, whatever its exit status was.
 #
@@ -17,7 +17,7 @@ case "${1:-}" in
   check)
     name=${2:?name}; log=${3:?log}; [ -f "$log" ] || bad "$name: no log"
     skipped=0; if grep -qE '(^|[^A-Za-z])SKIPPED' "$log"; then skipped=1
-      [ "${VBM_ALLOW_SKIP:-0}" = 1 ] || bad "$name: it reports SKIPPED: a skipped check is a failure, never a pass (VBM_ALLOW_SKIP=1 only on a box that lacks an optional tool; the gate requires every tool)"
+      [ "${VBM_ALLOW_SKIP:-0}" = 1 ] || bad "$name: it reports SKIPPED: a skipped check is a failure, never a pass (VBM_ALLOW_SKIP=1 only on a box that lacks an optional tool)"
       echo "ran-evidence: $name: SKIPPED part allowed by VBM_ALLOW_SKIP=1 (NOT RUN)" >&2
     fi
     total=0; seen=0
@@ -57,5 +57,5 @@ case "${1:-}" in
     [ "$n" -gt 0 ] || bad "check-dir: no gate logs in $dir"
     [ "$failed" = 0 ] || exit 1
     ;;
-  *) echo "usage: ran-evidence.sh check NAME LOG | gate NAME REGEX CMD... | check-dir DIR MAP" >&2; exit 2;;
+  *) echo "usage: ran-evidence check NAME LOG | gate NAME REGEX CMD... | check-dir DIR MAP" >&2; exit 2;;
 esac
