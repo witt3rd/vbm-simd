@@ -29,7 +29,7 @@ Lean models and differential tests, each with its own entry in a ledger. It is t
 
 **The trusted C** is one header, [`include/vbm_simd.h`](include/vbm_simd.h): four primitives (`ld64`, `st64`, `st32`, `ctz`, each a few lines, each with a Lean model in `VbmSimd/Shims.lean` that is its specification) and the AVX2 and short-append bodies of later clauses, tested against the model on boundary and random cases and against deliberate mutants of the header (`scripts/test-shims.sh`). They are total: no call touches memory outside its array.
 
-The statements are about `UInt64` code, the code the Lean compiler turns into C, not about a model of it. Only the three standard axioms are used (checked by `scripts/AxiomGate.lean` on every run). [`docs/SPEC.md`](docs/SPEC.md) lists the clauses; [`docs/method.md`](docs/method.md) explains the proof pattern, which is the reusable part:
+The statements are about `UInt64` code, the code the Lean compiler turns into C, not about a model of it. Only the three standard axioms are used (checked by `.land/tool/bin/land-lean axiom` on every run). [`docs/SPEC.md`](docs/SPEC.md) lists the clauses; [`docs/method.md`](docs/method.md) explains the proof pattern, which is the reusable part:
 a carry chain is a sequential machine in disguise, so the proof is an induction over the bit index with an invariant relating the carry to the machine's state, whose step is a `decide` over a handful of Booleans.
 
 `bv_decide`, the obvious tool for fixed-width circuits, is **not** used and cannot be: it adds one axiom per theorem, which the axiom gate rejects and the independent proof checkers can only take on trust ([`docs/findings/bv-decide.md`](docs/findings/bv-decide.md)).

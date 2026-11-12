@@ -27,7 +27,7 @@ then the chunking theorem. Toolchain: Lean 4.35.0 pinned in `mise.toml` and `lea
 
 ## Hard rules
 - **Forbidden anywhere in Lean:** `sorry`, `admit`, `axiom`, `unsafe`, `implemented_by`, `csimp` (Tier 1 scans for them; a comment may mention one only on a line marked `tier1-allow`). A proof is hard? Decompose it; never weaken the statement.
-- **No `bv_decide`, no `native_decide`, no `decide +kernel`:** the first adds an axiom per theorem that the axiom gate rejects and the independent checkers can only take on trust; the others are proof by evaluation. Standard axioms only (`propext`, `Classical.choice`, `Quot.sound`: `scripts/AxiomGate.lean`).
+- **No `bv_decide`, no `native_decide`, no `decide +kernel`:** the first adds an axiom per theorem that the axiom gate rejects and the independent checkers can only take on trust; the others are proof by evaluation. Standard axioms only (`propext`, `Classical.choice`, `Quot.sound`: `.land/tool/bin/land-lean axiom`).
 - **Spec first.** A kernel lands with its clause in `docs/SPEC.md`, its machine in `VbmSimd/Spec.lean` and its theorem; no kernel without the theorem. No unproved claim called verified.
 - **The shims decide nothing.** A C shim moves or counts bytes and bits (a load, a store, a count of trailing zeros); every shim has a Lean model, a differential test against it and ONE trust-ledger entry; a vector-ISA shim is selected at build time and the portable path is always available.
 - **`VbmSimd` imports `Init` and other `VbmSimd` modules only** (Tier 1 scans the imports). `VbmSimdProofs` may import `Std` and `Lean`; nothing in `VbmSimd` may import it.

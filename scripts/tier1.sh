@@ -18,7 +18,7 @@ lake build VbmSimd VbmSimdProofs
 # 3b. The trusted C shims against their Lean models (and mutants of the header).
 scripts/test-shims.sh
 # 4. Only the standard axioms. 5. Every spec clause has its proof; a new trusted boundary has a trust-ledger entry.
-lake env lean --run scripts/AxiomGate.lean
+.land/tool/bin/land-lean axiom
 scripts/spec-check.sh
 scripts/trust-ledger-check.sh
 echo "tier1: ok"
