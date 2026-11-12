@@ -2,7 +2,7 @@
 
 One file listing **everything outside our direct control that vbm-simd executes or depends on**: code we did not prove, code we did not write, and facilities we assume. It exists because
 *verified by construction* is the first priority of the project: the size of the unverified base, and the care taken at its boundary, is the most important measure. A boundary with no entry here
-does not land (`scripts/trust-ledger-check.sh`, Tier 1).
+does not land (`.land/tool/lean/trust-keys.sh`, Tier 1).
 
 **Snapshot at the first landing:** no C and no `@[extern]`: the library was Lean only, and the kernels are proved against the machines of `docs/SPEC.md`. The ledger covered what the *build* depends on.
 
@@ -16,7 +16,7 @@ pins (`lean-toolchain`, `mise.toml`, `lakefile.lean`), the Lean pin's compiler, 
 - A new boundary (extern, header, tool) with no entry **fails**. A `Covers` key that names nothing real fails, and **removing any entry fails** (the gate does this to itself on every run, one entry at a time: an entry that covers nothing required is padding).
   Dangling file references fail. An entry needs all seven fields, a **Plan** from `verify | replace | sandbox | accept` (`accept` needs `because ...`), **Assumes** that links a written contract or says `no written contract`
   (counted as a gap), and **Test** that names a test that can fail or says `none` (counted as a gap).
-- Not covered by the gate (said here rather than pretended): a tool called from a script that is not on the watch-list in `scripts/trust-ledger-check.sh`, and the *quality* of an entry's prose.
+- Not covered by the gate (said here rather than pretended): a tool called from a script that is not on the watch-list in `.land/tool/lean/trust-keys.sh`, and the *quality* of an entry's prose.
 
 Entry format: **What** it is; **Enters** where it enters; **Assumes** what we assume of it (the contract); **Test** the test that can fail; **Owner**; **Plan**; **Covers** the derived keys.
 
@@ -71,7 +71,7 @@ Entry format: **What** it is; **Enters** where it enters; **Assumes** what we as
 
 ### T07. python3: the process tooling
 - **What:** `python3`, the trust-ledger checker. It runs on the developer's machine before the push; it is not part of any artifact.
-- **Enters:** `scripts/trust_ledger.py`, run by `scripts/trust-ledger-check.sh` (Tier 1).
+- **Enters:** `.land/tool/lean/trust_ledger.py`, run by `.land/tool/lean/trust-keys.sh` (Tier 1).
 - **Assumes:** it does what its manual says; the self-tests of the checker are the check that our use is right; no written contract.
 - **Test:** scripts/spec-check.sh, and the checker's own self-tests (it removes each entry in turn and requires a failure).
 - **Owner:** upstream tools; the repository owner approves the scripts (CODEOWNERS).

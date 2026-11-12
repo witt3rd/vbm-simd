@@ -20,5 +20,5 @@ scripts/test-shims.sh
 # 4. Only the standard axioms. 5. Every spec clause has its proof; a new trusted boundary has a trust-ledger entry.
 .land/tool/bin/land-lean axiom
 scripts/spec-check.sh
-scripts/trust-ledger-check.sh
+.land/tool/bin/land-lean trust
 echo "tier1: ok"
