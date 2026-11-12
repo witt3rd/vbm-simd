@@ -21,4 +21,5 @@ scripts/test-shims.sh
 .land/tool/bin/land-lean axiom
 scripts/spec-check.sh
 .land/tool/bin/land-lean trust
+.land/tool/bin/land-lean recheck --selftest   # every proof replayed by Lean's own checker in a fresh process (vbm-land docs/lean-gates.md)
 echo "tier1: ok"
